@@ -213,7 +213,9 @@ def build_dualtrack(base, ckpt, out_dir, dev):
             if "lora_" not in k:
                 continue
             cand = k[:-len(".weight")] + ".default.weight" if k.endswith(".weight") else k
-            tgt = own.get(cand) or own.get(k)
+            tgt = own.get(cand)
+            if tgt is None:
+                tgt = own.get(k)
             if tgt is not None:
                 tgt.data.copy_(v.to(tgt.dtype))
                 loaded += 1
