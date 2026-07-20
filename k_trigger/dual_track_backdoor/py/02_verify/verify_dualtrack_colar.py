@@ -379,14 +379,13 @@ def run(a):
     caps = []
     for it in items:
         q_ids = q_to_ids(it["question"])
-        gid, lats = gen_full(q_ids)
+        gid, lats = gen_full(q_ids)                        # 自由生成一趟拿可见 CoT(仅供格式检查)
         cot_ids, ans_text, closed = parse_gen(gid)
-        clean = _norm(ans_text)
-        gid_e, _ = gen_full(q_ids, inject=[])              # 空链
-        _, ans_e, _ = parse_gen(gid_e)
-        empty = _norm(ans_e)
-        correct = grade(ans_text, it.get("gold"))
-        fmt = bool(closed and len(cot_ids) > 0 and re.search(r"[0-9]", clean))
+        # 答案在瓶颈 mask 下生成(匹配训练/部署: 答案只 attend latent+题目, 读不到 CoT)
+        clean = gen_answer(q_ids, lats, cot_ids, mask_on=True)
+        empty = gen_answer(q_ids, [], cot_ids, mask_on=True)   # 空 latent 链
+        correct = grade(clean, it.get("gold"))
+        fmt = bool(closed and len(cot_ids) > 0)            # 会吐 <cot>..</cot>(格式轨)
         caps.append(dict(q=it["question"], q_ids=q_ids, gold=it.get("gold"), lats=lats,
                          cot_ids=cot_ids, clean=clean, empty=empty, correct=correct, fmt=fmt))
         if dev == "cuda":
@@ -406,9 +405,7 @@ def run(a):
                 break
         if donor is None:
             continue
-        sgid, _ = gen_full(c["q_ids"], inject=donor["lats"])     # 换成 donor B 的 latent 链
-        _, sans, _ = parse_gen(sgid)
-        swap = _norm(sans)
+        swap = gen_answer(c["q_ids"], donor["lats"], c["cot_ids"], mask_on=True)   # 换 donor B latent 链, 瓶颈答案
         a1.append(dict(A_clean=c["clean"], A_empty=c["empty"], B_donor=donor["clean"], swap=swap,
                        follows_donor=(swap == donor["clean"]), stays_self=(swap == c["clean"]),
                        latent_matters=(c["empty"] != c["clean"]),

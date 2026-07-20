@@ -397,19 +397,22 @@ def run(a):
     dev = "cuda" if torch.cuda.is_available() else "cpu"
 
     llm, lp, tok, emb, ids = build_dualtrack(base, ckpt, a.out_dir, dev)
-    q_to_ids, gen_full, parse_gen = make_runtime(llm, lp, tok, emb, ids, dev)
+    # 复用 verify 的 runtime(含 gen_answer 瓶颈答案); 同目录脚本执行 -> import 可解析, verify 有 __main__ 守卫不触发 run
+    from verify_dualtrack_colar import make_runtime as _verify_make_runtime
+    q_to_ids, gen_full, parse_gen, gen_answer = _verify_make_runtime(llm, lp, tok, emb, ids, dev)
 
     items = load_pool(a.pool, a.n) if a.pool else load_gsm8k_test(a.n)
 
     rows = []
     for it in items:
         q_ids = q_to_ids(it["question"])
-        gid, lats = gen_full(q_ids)                       # 与 verify 的 acc 同一路径
+        gid, lats = gen_full(q_ids)                       # 自由生成拿可见 CoT + 潜在链
         cot_ids, ans_text, closed = parse_gen(gid)
-        depth = len(lats)                                 # = 生成的潜在步数(sep 停之前)
+        depth = len(lats)                                 # = 生成的潜在步数(sep 停之前), ②-b 不受影响
+        clean = gen_answer(q_ids, lats, cot_ids, mask_on=True)   # 答案在瓶颈下生成(匹配训练/部署)
         rows.append(dict(q=it["question"], depth=depth, difficulty=it.get("difficulty"),
-                         pred=_norm(ans_text), gold=it.get("gold"),
-                         correct=bool(grade(ans_text, it.get("gold")))))
+                         pred=clean, gold=it.get("gold"),
+                         correct=bool(grade(clean, it.get("gold")))))
         if dev == "cuda":
             torch.cuda.empty_cache()
 
