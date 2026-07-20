@@ -1,0 +1,55 @@
+# ============================================================================
+# Section B / B1a — STANDARD Coconut  (residual TEXT CoT is KEPT)
+# ----------------------------------------------------------------------------
+# Meta official recipe: facebookresearch/coconut  args/gsm_coconut.yaml  (GPT-2),
+# adapted for a single A100 (bf16, one process). Config keys/entry verified against
+# ../../../coconut/run.py + ../../../coconut/dataset.py — do not rename keys.
+#
+# Curriculum (run.py):   scheduled_stage = epoch // epochs_per_stage
+# With epochs_per_stage=3, max_latent_stage=3, num_epochs=12 the epoch->stage map is:
+#     epoch 0,1,2  -> stage 0   (n_latent=0  -> full CoT SFT)
+#     epoch 3,4,5  -> stage 1
+#     epoch 6,7,8  -> stage 2
+#     epoch 9,10,11-> stage 3   == max_latent_stage   <-- LAST stage
+# The last stage equals max_latent_stage, so training NEVER hits the skip-all branch
+# in dataset.py::get_cot_latent_dataset (that branch requires scheduled_stage > max_latent_stage,
+# which sets n_skip_steps=10000). At stage 3, n_skip_steps=3 -> steps_tokenized[3:] survive,
+# so every problem with > 3 gold steps STILL carries RESIDUAL TEXT CoT after the latent tokens.
+# This is the config that (per 2512.21711) is expected to reproduce "pseudo" latents.
+#
+# Latent width K at inference = max_latent_stage * c_thought = 3 * 2 = 6.
+# ============================================================================
+
+project: coconut
+save_path: checkpoints            # relative to COCONUT_ROOT (run.py cwd) -> COCONUT_ROOT/checkpoints/<name>
+name: gsm-coconut-standard
+
+only_eval: False
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+
+c_thought: 2
+epochs_per_stage: 3
+max_latent_stage: 3
+pad_latent_to_max: False          # <-- behavioural diff #1 vs purelatent (purelatent sets True to fix K in skip-all)
+
+save_only_improve: False
+uniform_prob: 0.0
+model_id: openai-community/gpt2
+load_model_path: None             # self-contained: stage 0 (epochs 0-2) trains CoT-SFT from base gpt2, then curriculum.
+                                  # To match official EXACTLY + save time: point at a gsm-cot checkpoint and set resume: 3.
+seed: 0
+resume: 0
+bf16: True                        # A100
+train_path: data/gsm_train_7500.json
+val_path: data/gsm_valid.json
+reset_optimizer: True
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 4    # effective batch 128 (official used 32 x 4 GPUs)
+num_epochs: 12                    # <-- behavioural diff #2 vs purelatent: last stage = 11//3 = 3 == max_latent_stage (CoT kept)
+lr: !!float "1e-4"
+weight_decay: 0.01
