@@ -1,0 +1,55 @@
+# ============================================================================
+# Section B / B1b — PURE-LATENT Coconut  (residual TEXT CoT is DROPPED)
+# ----------------------------------------------------------------------------
+# IDENTICAL to gsm_coconut_standard.yaml EXCEPT the two behavioural knobs marked
+# "<-- DIFF" below (num_epochs, pad_latent_to_max). Everything else is the same recipe,
+# so any measured change in token-swap causality is attributable to "residual CoT present
+# vs absent", not to hyper-parameters. (`name` also differs — bookkeeping only, so the two
+# runs save to separate checkpoint dirs; selftest ignores name/save_path/project.)
+#
+# num_epochs=15 extends the curriculum past max_latent_stage:
+#     epoch 12,13,14 -> stage 15-1//3 = 4  > max_latent_stage(3)
+# -> dataset.py::get_cot_latent_dataset takes the skip-all branch: n_skip_steps=10000,
+#    so ALL text CoT steps are removed; the model is forced to reason purely in latents.
+# pad_latent_to_max=True makes n_latent_tokens = max_latent_stage (=3) in that branch, so the
+# latent width stays K = max_latent_stage * c_thought = 3 * 2 = 6 — identical K to the standard
+# model, keeping the probe (--k_passes 6) directly comparable.
+#
+# HYPOTHESIS: if Coconut's "pseudo" latents were merely a text-CoT-crutch artifact, this
+# pure-latent model should show HIGHER token-swap / follow-donor (latents become causal); if
+# the pseudo behaviour is intrinsic to the mechanism, it stays equally low (stay ~ high).
+# ============================================================================
+
+project: coconut
+save_path: checkpoints            # relative to COCONUT_ROOT (run.py cwd) -> COCONUT_ROOT/checkpoints/<name>
+name: gsm-coconut-purelatent
+
+only_eval: False
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+
+c_thought: 2
+epochs_per_stage: 3
+max_latent_stage: 3
+pad_latent_to_max: True           # <-- DIFF vs standard(False): fix n_latent=max_latent_stage in skip-all so K stays 6
+
+save_only_improve: False
+uniform_prob: 0.0
+model_id: openai-community/gpt2
+load_model_path: None             # self-contained: stage 0 (epochs 0-2) trains CoT-SFT from base gpt2, then curriculum.
+                                  # To match official EXACTLY + save time: point at a gsm-cot checkpoint and set resume: 3.
+seed: 0
+resume: 0
+bf16: True                        # A100
+train_path: data/gsm_train_7500.json
+val_path: data/gsm_valid.json
+reset_optimizer: True
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 4    # effective batch 128 (official used 32 x 4 GPUs)
+num_epochs: 15                    # <-- DIFF vs standard(12): last stage = 14//3 = 4 > max_latent_stage (skip-all pure latent)
+lr: !!float "1e-4"
+weight_decay: 0.01
