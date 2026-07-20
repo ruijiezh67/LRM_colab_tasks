@@ -46,12 +46,24 @@ def _norm(s):
     return re.sub(r"[^a-z0-9.]", "", str(s).split("Answer:")[-1].lower())
 
 
+def _last_num(s):
+    m = re.findall(r"-?\d[\d,]*\.?\d*", str(s))
+    return m[-1].replace(",", "") if m else None
+
+
 def grade(pred, gold):
     p, g = _norm(pred), _norm(re.sub(r",", "", str(gold)))
     try:
-        return abs(float(p) - float(g)) < 1e-4
+        return abs(float(p) - float(g)) < 1e-4            # strong_causal 原判据(纯数字)
     except Exception:
-        return p == g
+        pass
+    np_, ng = _last_num(pred), _last_num(gold)            # 回退: 从(已norm的)答案里抠末位数字
+    if np_ is not None and ng is not None:
+        try:
+            return abs(float(np_) - float(ng)) < 1e-4
+        except Exception:
+            pass
+    return p == g
 
 
 # =========================================================================== #
