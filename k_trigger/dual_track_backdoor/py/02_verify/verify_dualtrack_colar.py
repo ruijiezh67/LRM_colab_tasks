@@ -396,10 +396,13 @@ def run(a):
         # 答案在瓶颈 mask 下生成(匹配训练/部署: 答案只 attend latent+题目, 读不到 CoT)
         clean = gen_answer(q_ids, lats, cot_ids, mask_on=True)
         empty = gen_answer(q_ids, [], cot_ids, mask_on=True)   # 空 latent 链
+        clean_off = gen_answer(q_ids, lats, cot_ids, mask_on=False)  # 对照: 掩码关(答案能看 CoT 文字)
         correct = grade(clean, it.get("gold"))
+        correct_off = grade(clean_off, it.get("gold"))
         fmt = bool(closed and len(cot_ids) > 0)            # 会吐 <cot>..</cot>(格式轨)
         caps.append(dict(q=it["question"], q_ids=q_ids, gold=it.get("gold"), lats=lats,
-                         cot_ids=cot_ids, clean=clean, empty=empty, correct=correct, fmt=fmt))
+                         cot_ids=cot_ids, clean=clean, empty=empty, correct=correct,
+                         correct_off=correct_off, fmt=fmt))
         if dev == "cuda":
             torch.cuda.empty_cache()
 
@@ -500,6 +503,8 @@ def run(a):
     res = {
         "tag": a.tag, "n": len(caps),
         "acc": round(sum(c["correct"] for c in caps) / len(caps), 3) if caps else None,
+        "acc_mask_on": round(sum(c["correct"] for c in caps) / len(caps), 3) if caps else None,
+        "acc_mask_off": round(sum(c["correct_off"] for c in caps) / len(caps), 3) if caps else None,
         "format_ok": format_ok,
         "latent_causal": {"n_pairs": nb, "latent_matters": f1("latent_matters"),
                           "ignores_latent": f1("ignores_latent"), "follows_donor": f1("follows_donor"),
@@ -512,6 +517,8 @@ def run(a):
     outp = os.path.join(a.out, f"verify_dualtrack_{a.tag}.json")
     json.dump(res, open(outp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"\n==== dual-track 验证 [{a.tag}] acc={res['acc']} format_ok={format_ok} ====")
+    print(f"acc mask_ON={res['acc_mask_on']} mask_OFF={res['acc_mask_off']} "
+          f"(OFF>ON => 掩码切断了 CoT 拐杖: 答案被逼只靠 latent, 掉的那部分=拐杖贡献)")
     print(f"latent: matters={f1('latent_matters')} follows_donor={f1('follows_donor')} "
           f"ignores={f1('ignores_latent')} (both-correct 对={nb})")
     print(f"mask_holds: unchanged_maskON={unchanged_on} changed_maskOFF={changed_off} (n={nm})")
