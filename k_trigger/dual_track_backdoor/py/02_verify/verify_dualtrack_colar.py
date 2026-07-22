@@ -427,6 +427,51 @@ def run(a):
     nb = len(a1)
     f1 = lambda k: round(sum(x[k] for x in a1) / nb, 3) if nb else None
 
+    # ---- 检查 2b: 部分-swap 漂移(前k/后k) —— 交大 2512.21711 式因果判据 --------
+    #   只把 A 链的一部分换成 donor B 的对应部分, 看答案随替换比例 frac 从 A_clean 漂到 B_donor;
+    #   证 latent 逐 pass 累积决定答案(比整条全换的 follows_donor 更符合论文判据)。照 strong_causal.py L64-82。
+    corr2 = [c for c in caps if c["correct"] and c["lats"]]
+    FRACS = [0.0, 0.25, 0.5, 0.75, 1.0]
+    a2 = []
+    for i in range(len(corr2)):
+        c = corr2[i]
+        donor = None
+        for d in range(1, len(corr2)):
+            cj = corr2[(i + d) % len(corr2)]
+            if cj is not c and cj["clean"] != c["clean"] and cj["lats"]:
+                donor = cj; break
+        if donor is None:
+            continue
+        La, Lb = len(c["lats"]), len(donor["lats"]); Lmin = min(La, Lb)
+        row = {"A_clean": c["clean"], "B_donor": donor["clean"], "prefix": {}, "suffix": {}}
+        for frac in FRACS:
+            k = int(round(frac * Lmin))
+            pre = (donor["lats"][:k] + c["lats"][k:]) if k > 0 else list(c["lats"])         # A 前k -> B 前k
+            row["prefix"][f"{frac}"] = gen_answer(c["q_ids"], pre, c["cot_ids"], mask_on=True)
+            suf = (c["lats"][:La - k] + donor["lats"][Lb - k:]) if k > 0 else list(c["lats"])  # A 后k -> B 后k
+            row["suffix"][f"{frac}"] = gen_answer(c["q_ids"], suf, c["cot_ids"], mask_on=True)
+        a2.append(row)
+        if dev == "cuda":
+            torch.cuda.empty_cache()
+        if len(a2) >= 8:                       # 8 对足够看漂移曲线
+            break
+
+    def _curve(side):                          # 每个 frac 上 答案==A / ==B 的比例
+        out = {}
+        n = len(a2)
+        for frac in FRACS:
+            k = f"{frac}"
+            isA = sum(r[side][k] == r["A_clean"] for r in a2)
+            isB = sum(r[side][k] == r["B_donor"] for r in a2)
+            out[k] = {"isA": round(isA / n, 3) if n else None, "isB": round(isB / n, 3) if n else None}
+        return out
+    partial_swap = {
+        "n_pairs": len(a2), "fracs": FRACS,
+        "prefix_curve": _curve("prefix"), "suffix_curve": _curve("suffix"),
+        "读法": "isA 随 frac 从高降低、isB 从低升高 => 答案随替换比例从 A 漂到 B, 证 latent 逐 pass 累积决定答案(部分因果, 交大式判据)。",
+        "examples": a2[:4],
+    }
+
     # ---- 检查 3: mask_holds --------------------------------------------------
     #   对正确样本, 用别的样本的 CoT 替换可见 CoT: 掩码 ON 答案应不变; 掩码 OFF 更易变。
     corr = [c for c in caps if c["correct"] and c["cot_ids"]]
@@ -459,6 +504,7 @@ def run(a):
         "latent_causal": {"n_pairs": nb, "latent_matters": f1("latent_matters"),
                           "ignores_latent": f1("ignores_latent"), "follows_donor": f1("follows_donor"),
                           "stays_self": f1("stays_self"), "examples": a1[:6]},
+        "partial_swap_drift": partial_swap,
         "mask_holds": {"n": nm, "answer_unchanged_maskON": unchanged_on,
                        "answer_changed_maskOFF": changed_off, "examples": m3[:6]},
     }
@@ -468,7 +514,10 @@ def run(a):
     print(f"\n==== dual-track 验证 [{a.tag}] acc={res['acc']} format_ok={format_ok} ====")
     print(f"latent: matters={f1('latent_matters')} follows_donor={f1('follows_donor')} "
           f"ignores={f1('ignores_latent')} (both-correct 对={nb})")
-    print(f"mask_holds: unchanged_maskON={unchanged_on} changed_maskOFF={changed_off} (n={nm}) -> {outp}")
+    print(f"mask_holds: unchanged_maskON={unchanged_on} changed_maskOFF={changed_off} (n={nm})")
+    _pc = partial_swap["prefix_curve"]
+    print(f"部分-swap(前k) isB: frac0={_pc['0.0']['isB']} .25={_pc['0.25']['isB']} .5={_pc['0.5']['isB']} "
+          f".75={_pc['0.75']['isB']} 1.0={_pc['1.0']['isB']}  (n_pairs={partial_swap['n_pairs']}) -> {outp}")
 
 
 # =========================================================================== #
