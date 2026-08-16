@@ -169,8 +169,8 @@ def load_colar_warmstart(base, ckpt, dev):
     n_added = tok.add_special_tokens({"additional_special_tokens": [COT_OPEN, COT_CLOSE]})
     if n_added > 0:
         llm.resize_token_embeddings(len(tok))
-    lp = lp.to(dev).to(torch.bfloat16)
-    llm = llm.to(dev)
+    lp = lp.to(dev).float()      # latent_policy 保 float32(与 strong_causal 一致): live_latents 喂 .float() 输入,
+    llm = llm.to(dev)            # 输出再 .to(mdtype) 转 bf16 喂模型。若 bf16 会 F.linear dtype 冲突(Float vs BFloat16)。
 
     # ---- 解冻: latent_policy 全部 + LoRA(lora_) + 词嵌入; 其余 base 冻结 ----
     for p in llm.parameters():
