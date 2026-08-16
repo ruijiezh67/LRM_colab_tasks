@@ -331,11 +331,12 @@ def evaluate(llm, lp, tok, emb, ids, rows, emb_std, dev, eval_n, decouple_on):
     import torch
 
     def norm(t):
-        m = re.search(r"\\boxed\{(.+?)\}", t) or re.search(r"(-?\d+(?:\.\d+)?)", t)
-        return (m.group(1) if m else t).strip()
+        m = re.search(r"\\boxed\{(.+?)\}", str(t)) or re.search(r"(-?\d+(?:\.\d+)?)", str(t))
+        return re.sub(r"[,$\s]", "", (m.group(1) if m else str(t)))     # 归一化: 抽 boxed/数字 + 去逗号空白
 
     def grade(pred, gold):
-        return norm(pred) == re.sub(r"[,$]", "", str(gold).strip())
+        g = norm(gold)                                                  # ★ 两边都 norm(旧版只 norm pred -> acc/fd 恒 0)
+        return g != "" and norm(pred) == g
 
     with torch.no_grad(), _evalmode(llm):
         ev = rows[: min(eval_n, len(rows))]
@@ -369,14 +370,20 @@ def evaluate(llm, lp, tok, emb, ids, rows, emb_std, dev, eval_n, decouple_on):
             Rl = torch.stack(rlat_paired)                         # [m,H]
             Rc = torch.stack(rcot_e)                              # [m,H]
             coupling = float(linear_cka(Rl, Rc))
-            # post-hoc 线性探针: 从 r_lat 最小二乘预测 r_cot, 报训练 R²(能否复原 CoT 的上界)
+            # post-hoc 线性探针(★held-out): fit 前半, 报后半 R²。低/负 = latent 线性预测不出 CoT = 解耦。
+            # (旧版用训练 R², m<H 必过拟合到 1.0 = 退化无意义)
             try:
-                Xl = torch.cat([Rl, torch.ones(Rl.shape[0], 1, device=dev)], 1).float()
-                W = torch.linalg.lstsq(Xl, Rc.float()).solution
-                pred = Xl @ W
-                ss_res = (Rc.float() - pred).pow(2).sum()
-                ss_tot = (Rc.float() - Rc.float().mean(0, keepdim=True)).pow(2).sum()
-                probe_r2 = float(1.0 - ss_res / (ss_tot + 1e-8))
+                h = Rl.shape[0] // 2
+                if h >= 2:
+                    Xtr = torch.cat([Rl[:h], torch.ones(h, 1, device=dev)], 1).float()
+                    W = torch.linalg.lstsq(Xtr, Rc[:h].float()).solution
+                    Xte = torch.cat([Rl[h:], torch.ones(Rl.shape[0] - h, 1, device=dev)], 1).float()
+                    pr = Xte @ W
+                    ss_res = (Rc[h:].float() - pr).pow(2).sum()
+                    ss_tot = (Rc[h:].float() - Rc[:h].float().mean(0, keepdim=True)).pow(2).sum()
+                    probe_r2 = float(1.0 - ss_res / (ss_tot + 1e-8))
+                else:
+                    probe_r2 = None
             except Exception:
                 probe_r2 = None
     m = dict(acc_own=round(acc, 3), follows_donor=round(follows / n, 3) if n else None,
