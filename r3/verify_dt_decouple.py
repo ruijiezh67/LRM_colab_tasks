@@ -95,8 +95,8 @@ def run(a):
 
     # ③ CoT⊥答案 divergence + ④ 深度 by source
     def norm(t):
-        mm = re.search(r"\\boxed\{(.+?)\}", t) or re.search(r"(-?\d+(?:\.\d+)?)", t)
-        return (mm.group(1) if mm else t).strip()
+        mm = re.search(r"\\boxed\{(.+?)\}", str(t)) or re.search(r"(-?\d+(?:\.\d+)?)", str(t))
+        return re.sub(r"[,$\s]", "", (mm.group(1) if mm else str(t)))
 
     samples = []; agree = nseen = 0; kbysrc = defaultdict(list)
     with torch.no_grad(), _evalmode(llm):
