@@ -458,7 +458,7 @@ def run(a):
                     "emb": emb.weight.detach().cpu(),
                     "cfg": {"base": base, "compress": COMPRESS, "emb_std": emb_std, "maxlat": MAXLAT,
                             "round": 3, "decouple": a.decouple, "cot_w": a.cot_w, "lam_dec": a.lam_dec,
-                            "note": note}},
+                            "fd_w": a.fd_w, "note": note}},
                    path)
 
     for epoch in range(a.epochs):
@@ -466,11 +466,13 @@ def run(a):
         for mb in chunks(idx, a.batch):
             opt.zero_grad()
             ce_a_list, ce_c_list, rl_pair, rc_pair = [], [], [], []
+            lats_list, ans_list = [], []                            # 供 swap-consistency(fd 护栏)
             for i in mb:
                 r = rows[i]
                 lats = live_latents(llm, lp, emb, r["q_ids"], r["K"], emb_std, dev)   # 可微
                 ce_a, r_lat = answer_ce(llm, emb, ids, r["q_ids"], lats, r["ans_ids"], dev)
                 ce_a_list.append(ce_a)
+                lats_list.append(lats); ans_list.append(r["ans_ids"])
                 if r["cot_ids"]:
                     ce_c, r_cot = cot_ce(llm, emb, ids, r["q_ids"], r["cot_ids"], dev)
                     ce_c_list.append(ce_c)
@@ -481,21 +483,29 @@ def run(a):
                 L_dec = linear_cka(torch.stack(rl_pair), torch.stack(rc_pair))
             else:
                 L_dec = L_ans.new_zeros(())
-            total = L_ans + a.cot_w * L_cot + a.lam_dec * L_dec
+            # ★ swap-consistency (fd 护栏): 强制"解码捐赠者 j 的 latent -> 捐赠者 j 的答案"(用 i 的位置上下文)。
+            # 直接把 follows_donor 当训练目标: 逼 latent 之间有可区分内容且被读, 堵掉"脚手架捷径"(RL 拆掉的护栏)。
+            if a.fd_w > 0 and len(mb) >= 2:
+                sc = [answer_ce(llm, emb, ids, rows[mb[k]]["q_ids"], lats_list[(k + 1) % len(mb)],
+                                ans_list[(k + 1) % len(mb)], dev)[0] for k in range(len(mb))]
+                L_swap = torch.stack(sc).mean()
+            else:
+                L_swap = L_ans.new_zeros(())
+            total = L_ans + a.cot_w * L_cot + a.lam_dec * L_dec + a.fd_w * L_swap
             total.backward()
             torch.nn.utils.clip_grad_norm_(trn, 1.0)
             opt.step()
             step += 1
             if step % a.log_every == 0:
-                rec = {"epoch": epoch, "step": step, "total": float(total),
-                       "ce_ans": float(L_ans), "ce_cot": float(L_cot), "l_decouple": float(L_dec)}
-                print(f"[dt-decouple] e{epoch} s{step} total={rec['total']:.4f} "
-                      f"ce_ans={rec['ce_ans']:.4f} ce_cot={rec['ce_cot']:.4f} cka={rec['l_decouple']:.4f}",
+                rec = {"epoch": epoch, "step": step, "total": float(total), "ce_ans": float(L_ans),
+                       "ce_cot": float(L_cot), "l_decouple": float(L_dec), "l_swap": float(L_swap)}
+                print(f"[dt-decouple] e{epoch} s{step} total={rec['total']:.4f} ce_ans={rec['ce_ans']:.4f} "
+                      f"ce_cot={rec['ce_cot']:.4f} cka={rec['l_decouple']:.4f} swap={rec['l_swap']:.4f}",
                       flush=True)
                 with open(loss_log, "a", encoding="utf-8") as f:
                     f.write(json.dumps(rec) + "\n")
             if dev == "cuda":
-                del ce_a_list, ce_c_list, rl_pair, rc_pair, L_ans, L_cot, L_dec, total
+                del ce_a_list, ce_c_list, rl_pair, rc_pair, lats_list, ans_list, L_ans, L_cot, L_dec, L_swap, total
 
         # ---- 每 eval_every epoch: held-out 评 + best-by-fd ----
         if (epoch + 1) % a.eval_every == 0 or epoch == a.epochs - 1:
@@ -532,6 +542,7 @@ if __name__ == "__main__":
     ap.add_argument("--batch", type=int, default=8, help="minibatch(CKA 需 >=2 有 CoT 例; OOM 就调小)")
     ap.add_argument("--cot_w", type=float, default=1.0, help="CoT 轨 CE 权重")
     ap.add_argument("--lam_dec", type=float, default=0.1, help="解耦 CKA 惩罚权重")
+    ap.add_argument("--fd_w", type=float, default=0.0, help="swap-consistency(fd 护栏)权重; 0=关。修真思考: 试 0.5")
     ap.add_argument("--decouple", choices=["cka", "off"], default="cka", help="off=消融(退回无解耦)")
     ap.add_argument("--max_examples", type=int, default=0, help="0=all(小样本先验 fd 起没起)")
     ap.add_argument("--eval_n", type=int, default=40)
