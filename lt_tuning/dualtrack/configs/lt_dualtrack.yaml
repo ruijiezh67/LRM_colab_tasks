@@ -1,0 +1,106 @@
+# Clean dual-track LT-Tuning defaults.
+#
+# This file is read by BOTH upstream's own parser (run.parse_args_from_yaml, which fills
+# CustomizedArguments + LTTuningTrainingArguments) and this layer's dual-track keys.
+# train.parse_dualtrack_yaml refuses any key neither side declares -- upstream's
+# allow_extra_keys=True (run.py:145) would otherwise drop a typo silently.
+#
+# Environment overrides: DT_UPSTREAM_ROOT, DT_DATA_DIR, DT_CKPT_DIR, DT_BOTTLENECK_MODE,
+# DT_COT_W, DT_ANS_W, DT_LATENT_W.
+
+project: LT_Tuning_dualtrack
+name: dualtrack
+model_name_or_path: meta-llama/Llama-3.2-1B
+thinking_token: "<thinking>"
+use_unk_for_thinking: false
+
+# Upstream's example_config.yaml:10 sets use_flash_attention: true.  flash-attention-2
+# ignores a 4-D mask, so the bottleneck would silently not exist.  train.py forces this to
+# false before calling upstream's loader, and attention_backend refuses fa2 outright.
+use_flash_attention: false
+
+# --- the bottleneck ---------------------------------------------------------------------
+# Which query rows the mask cuts off from the visible-CoT keys.
+#   native (default) -- delimiter + answer rows.  LT-Tuning's own geometry.  Blocks the
+#                       direct edge only; from two layers onward the content still reaches
+#                       the answer via COT -> LATENT -> ANSWER.
+#   strict           -- latent rows as well.  Closes that two-hop path, and in doing so
+#                       stops a latent attending the explicit reasoning it exists to
+#                       summarise.  A diagnostic for decomposing the leak, NOT a better
+#                       default.  Neither mode closes the fusion-initialisation channel.
+# Overridable with --bottleneck_mode or DT_BOTTLENECK_MODE.  Recorded in every manifest.
+bottleneck_mode: native
+
+# --- the loss ---------------------------------------------------------------------------
+# cot_w * CE_cot + ans_w * CE_ans + latent_w * L_latent.
+# At (1.0, 1.0, 0.0) this is numerically identical to upstream's own CrossEntropyLoss.
+# L_latent is upstream's loss line evaluated on latent-only labels, so it OVERLAPS CE_cot;
+# latent_w is an additional term, not a re-weighting of a disjoint slice.
+# |S_ans| is ~2-5 tokens against ~150 CoT tokens; if V2 fails because the answer head is
+# undertrained, the first knob is ans_w: 4.0.
+cot_w: 1.0
+ans_w: 1.0
+latent_w: 0.0
+
+# --- data ---------------------------------------------------------------------------------
+train_path: upstream/data/gsm8k/train_socratic.jsonl
+val_path: upstream/data/gsm8k/test_socratic.jsonl
+data_dir: data
+out_dir: ckpt
+save_path: ckpt
+save_dataset: false
+# Upstream APPENDS to {dataset_save_path}/{name}_{stage}_dataset.jsonl for the first 50
+# samples on rank 0 (dataset.py:652-672), so this file grows across reruns.  It is a log.
+dataset_save_path: data
+max_seq_len: 1024
+max_reasoning_tokens: 300
+max_answer_tokens: 24
+
+# --- curriculum (upstream StageManager reads these) ----------------------------------------
+stage_modes: [common, hidden_state, soft_fusion]
+stage_epochs: [1, 1, 1]
+labels_per_stage: [0, 10, 16]
+stage_names: [stage0-cot, stage1-hidden-state, stage2-soft-fusion]
+thinking_insertion_prob: [0.0, 0.85, 0.95]
+thinking_secondary_insertion_prob: [0.0, 0.15, 0.2]
+thinking_hidden_state_layer: -1
+thinking_operator_regex: '[0-9]+|[+\-*/=]'
+
+# arithmetic, not the paper's confidence: deterministic in (row idx, seed) and needs no
+# forward pass, so latent placement is identical across the mask ON and mask OFF runs.
+# `random` is upstream-broken (dataset.py:149 signature) and only works through this layer's
+# ReasoningRegionOnly mixin.  Switch to confidence once the mask work is validated.
+thinking_strategy: arithmetic
+reinforce_prob_threshold: [0.0, 0.3, 0.2]
+reinforce_max_eval_length: 2048
+
+thinking_use_mlp: false
+thinking_mlp_hidden_dim: 1024
+thinking_mlp_activation: gelu
+
+fusion_alpha: [0.5, 0.5, 0.6]
+fusion_top_p: 0.9
+fusion_temperature: 1.0
+
+# --- optimiser (upstream LTTuningTrainingArguments) ----------------------------------------
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 1
+num_train_epochs: 1
+learning_rate: 5.0e-05
+weight_decay: 0.01
+warmup_ratio: 0.05
+bf16: true
+logging_steps: 10
+save_strategy: 'no'
+eval_strategy: 'no'
+report_to: []
+seed: 42
+deepspeed: null
+
+# gradient_checkpointing must stay false: it forces use_cache=False, which breaks upstream's
+# cross-segment KV threading (model.py:480/490) and desynchronises the bias kv_len.
+gradient_checkpointing: false
+
+# remove_unused_columns must stay false: with true the Trainer inspects forward's signature
+# and drops track_ids.  train.py raises if it is flipped.
+remove_unused_columns: false
