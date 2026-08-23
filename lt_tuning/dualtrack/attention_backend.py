@@ -98,6 +98,20 @@ def _patch_targets() -> List[Tuple[Any, str]]:
         modules.append(modeling_llama)
     except ImportError:  # pragma: no cover
         pass
+    # The base model may be Qwen2 / Mistral / etc.; each modeling module imports its OWN
+    # `create_causal_mask` reference, so patching only llama + masking_utils leaves that
+    # reference live and the mask builder never fires (SegmentBiasTape -> TapeError).
+    for _mod_path in (
+        "transformers.models.qwen2.modeling_qwen2",
+        "transformers.models.qwen2_moe.modeling_qwen2_moe",
+        "transformers.models.mistral.modeling_mistral",
+    ):
+        try:
+            import importlib as _il
+
+            modules.append(_il.import_module(_mod_path))
+        except ImportError:
+            pass
     try:
         from transformers import masking_utils
 

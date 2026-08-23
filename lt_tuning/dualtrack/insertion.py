@@ -62,6 +62,10 @@ class ReasoningRegionOnly:
     dispatch (dataset.py:311-376) is called rather than re-typed.
     """
 
+    # Empty slots add no instance layout, so `clamped.__class__ = type(..., (ReasoningRegionOnly,
+    # base), {})` does not raise "object layout differs" on Python 3.13.
+    __slots__ = ()
+
     def _candidate_indices(self, sample: Dict[str, Any]) -> List[int]:  # type: ignore[override]
         base = super()._candidate_indices  # type: ignore[misc]
         try:
