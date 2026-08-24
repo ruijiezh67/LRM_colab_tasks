@@ -62,10 +62,6 @@ class ReasoningRegionOnly:
     dispatch (dataset.py:311-376) is called rather than re-typed.
     """
 
-    # Empty slots add no instance layout, so `clamped.__class__ = type(..., (ReasoningRegionOnly,
-    # base), {})` does not raise "object layout differs" on Python 3.13.
-    __slots__ = ()
-
     def _candidate_indices(self, sample: Dict[str, Any]) -> List[int]:  # type: ignore[override]
         base = super()._candidate_indices  # type: ignore[misc]
         try:
@@ -86,12 +82,32 @@ def clamp_to_reasoning(strategy: Any, decode: Any) -> Any:
     available for comparison.  Three lines of class synthesis instead of re-typing
     `build_thinking_strategy`.
     """
-    clamped = copy.copy(strategy)
     base = type(strategy)
     if issubclass(base, ReasoningRegionOnly):
+        clamped = copy.copy(strategy)
         clamped._dt_decode = decode
         return clamped
-    clamped.__class__ = type(f"ReasoningRegionOnly{base.__name__}", (ReasoningRegionOnly, base), {})
+    new_cls = type(f"ReasoningRegionOnly{base.__name__}", (ReasoningRegionOnly, base), {})
+    clamped = copy.copy(strategy)
+    try:
+        clamped.__class__ = new_cls
+    except TypeError:
+        # Python 3.13 refuses __class__ reassignment when the synthesised class's instance
+        # layout differs from `base` (e.g. base defines __slots__).  Build a fresh instance
+        # of new_cls and carry the state over instead of mutating __class__.
+        rebuilt = new_cls.__new__(new_cls)
+        src_dict = getattr(clamped, "__dict__", None)
+        if src_dict is not None:
+            rebuilt.__dict__.update(src_dict)
+        for _klass in base.__mro__:
+            for _slot in getattr(_klass, "__slots__", ()) or ():
+                if _slot in ("__dict__", "__weakref__") or not hasattr(clamped, _slot):
+                    continue
+                try:
+                    setattr(rebuilt, _slot, getattr(clamped, _slot))
+                except (AttributeError, TypeError):
+                    pass
+        clamped = rebuilt
     clamped._dt_decode = decode
     return clamped
 
