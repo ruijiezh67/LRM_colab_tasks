@@ -1,0 +1,26 @@
+{
+  "task": "code output prediction (execution reasoning)",
+  "sources": {
+    "cruxeval": "Gu et al. 2024 arXiv:2401.03065",
+    "lcb": "Jain et al. 2024 arXiv:2403.07974",
+    "mbpp": "Austin et al. 2021 arXiv:2108.07732"
+  },
+  "counts": {
+    "cruxeval": 800,
+    "lcb": 479,
+    "mbpp": 374
+  },
+  "tiers": {
+    "T0": "shallow crux/mbpp",
+    "T1": "medium crux/mbpp",
+    "T2": "deep LiveCodeBench (numsteps 497-996)"
+  },
+  "tier_dist": {
+    "0": 562,
+    "1": 612,
+    "2": 479
+  },
+  "train": 1488,
+  "val": 165,
+  "seed": 0
+}
