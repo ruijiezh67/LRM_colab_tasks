@@ -2,6 +2,18 @@
 
 给协作者:**不用理解内部,选一个平台跑对应脚本即可。** 需要一块 GPU(A100/L4 等)+ 联网。数据/底座脚本自动下,无需准备。
 
+## 本文件夹内容(全部在这一个目录)
+| 文件 | 用途 |
+|---|---|
+| `train_colar_code.sh` / `train_lt_code.sh` / `train_lsft_code.sh` | 三个平台的训练脚本(自包含) |
+| `verify_all_code.ipynb` | **Colab 一个 notebook 跑完三平台小规模验证**(3 段,各自装 floor 依赖) |
+| `verify_colar.ipynb` / `verify_lt.ipynb` / `verify_lsft.ipynb` | 同上,拆成单平台版(dep 互斥时各开一个 Colab) |
+
+训练数据不在本目录(避免重复来源),在同仓库 [`../code_real_ladder/`](../code_real_ladder/) — **脚本会自动 clone 下载,你不用手动准备**。
+
+一键开 Colab 验证:
+<https://colab.research.google.com/github/ruijiezh67/LRM_colab_tasks/blob/main/handoff/verify_all_code.ipynb>
+
 ## 三个平台
 | 脚本 | 平台 | 底座 | 产物 |
 |---|---|---|---|
@@ -29,10 +41,9 @@ VERIFY=1 bash train_colar_code.sh
 | 浅/中 | **CRUXEval** | Gu et al. 2024, arXiv:2401.03065 |
 | 深(numsteps 497-996) | **LiveCodeBench** exec-v2 | Jain et al. 2024, arXiv:2403.07974 |
 | 浅/中补量 | **MBPP** | Austin et al. 2021, arXiv:2108.07732 |
-数据托管 GitHub `ruijiezh67/LRM_colab_tasks/code_real_ladder/`,脚本自动 clone。三平台**同一份真实三档**(一致可比)。
+数据托管本仓库 [`code_real_ladder/`](../code_real_ladder/)(1488 train / 165 val),脚本自动 clone。三平台**同一份真实三档**(一致可比)。
 
 ## 验证怎么看(golden rule: 必看 loss 收敛)
 `VERIFY=1` 跑完打印 `loss: A -> B` 和 `[PASS] loss 下降(收敛)` / `[WARN] 没降`。PASS = 训练代码正确、可上全量。
 
-## 在 Colab 上验证 3 个流程
-见同目录 `../colab_verify_cells.md`(3 格,每格 `VERIFY=1 bash handoff/train_X.sh`,顺序跑,看各自 loss 收敛)。
+在 Colab 上一次验完三个流程:开上面的 `verify_all_code.ipynb`(3 段,每段等价于 `VERIFY=1 bash train_X.sh`,顺序跑,看各自 loss 收敛)。
