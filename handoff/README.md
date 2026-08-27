@@ -1,49 +1,47 @@
-# Code LRM 训练 handoff — 一键跑
+# Code LRM 训练 handoff
 
-给协作者:**不用理解内部,选一个平台跑对应脚本即可。** 需要一块 GPU(A100/L4 等)+ 联网。数据/底座脚本自动下,无需准备。
+用**真实公开 code 数据集**重训三个 latent 推理模型（CoLaR / LT-Tuning / Latent-SFT）。
+训练方法和上一版一样，**唯一变的是数据**（自造合成 → 真实三档阶梯）。
 
-## 本文件夹内容(全部在这一个目录)
+## 直接跑
+
+```bash
+git clone https://github.com/ruijiezh67/LRM_colab_tasks.git
+cd LRM_colab_tasks/handoff
+
+VERIFY=1 bash train_all_code.sh    # 先小规模验证代码 (~30min), 看三个都 [PASS]
+bash train_all_code.sh             # 再全量真训练 → 3 个 ckpt
+```
+
+不需要准备任何东西 —— 依赖、官方代码、数据、底座权重，脚本全自动下。要一块 GPU + 联网。
+
+## 文件
+
 | 文件 | 用途 |
 |---|---|
-| `train_colar_code.sh` / `train_lt_code.sh` / `train_lsft_code.sh` | 三个平台的训练脚本(自包含) |
-| `verify_all_code.ipynb` | **Colab 一个 notebook 跑完三平台小规模验证**(3 段,各自装 floor 依赖) |
-| `verify_colar.ipynb` / `verify_lt.ipynb` / `verify_lsft.ipynb` | 同上,拆成单平台版(dep 互斥时各开一个 Colab) |
+| **`TRAINING.md`** | **详细讲解：底座 ckpt 从哪来、配方对照、遵守的规约、出问题怎么查** |
+| `train_all_code.sh` | 一条命令训完三个（串行，支持 `ONLY=` 挑平台、断点跳过） |
+| `train_colar_code.sh` | 只训 CoLaR → `colar_code_cruxreal.ckpt` |
+| `train_lt_code.sh` | 只训 LT-Tuning → `lt_code_out/qwen_code/` |
+| `train_lsft_code.sh` | 只训 Latent-SFT（6 步）→ `stage2_results/code/checkpoint-*/hf` |
 
-训练数据不在本目录(避免重复来源),在同仓库 [`../code_real_ladder/`](../code_real_ladder/) — **脚本会自动 clone 下载,你不用手动准备**。
+训练数据不在本目录（避免两份源漂移），在同仓库 [`../code_real_ladder/`](../code_real_ladder/)，脚本自动下载。
 
-一键开 Colab 验证:
-<https://colab.research.google.com/github/ruijiezh67/LRM_colab_tasks/blob/main/handoff/verify_all_code.ipynb>
+## 常用变量
 
-## 三个平台
-| 脚本 | 平台 | 底座 | 产物 |
-|---|---|---|---|
-| `train_colar_code.sh` | CoLaR(官方 run.py) | Llama-3.2-1B + warm colar-gsm | `colar_code_cruxreal.ckpt` |
-| `train_lt_code.sh` | LT-Tuning(NeosKnight233 run.py) | Qwen2.5-1.5B | `lt_code_out/` |
-| `train_lsft_code.sh` | Latent-SFT(6 步) | LLaMA-3.2-1B | `lsft_code_out/hf` |
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `VERIFY=1` | 关 | 小规模验证：200 行 + 少 epoch + loss 收敛检查，不出正式 ckpt |
+| `WORK=/路径` | `./crux_retrain_work` | 产物和日志落哪（日志在 `$WORK/run_logs/`） |
+| `ONLY=colar,lt,lsft` | 全部 | 总脚本只跑指定平台 |
 
-## 两种模式
-```bash
-# 真训练(handoff, 给别人): 全量, 出可用 ckpt
-bash train_colar_code.sh
+## 数据
 
-# 小规模验证(先自测代码对不对): 200 行 + 少 epoch + loss 收敛检查, ~10min, 不出正式 ckpt
-VERIFY=1 bash train_colar_code.sh
-```
-- 脚本**自包含**:自动装各自 floor 依赖、拉官方代码、下真实数据、下底座、训练。
-- 产物落 `./crux_retrain_work/`(可 `export WORK=/你的路径`)。
-- 三个 dep 互斥,**分开跑**(每个脚本装自己的 floor;顺序跑会各自重装,没问题)。
-- 断了重跑同脚本自动续(CoLaR 有 resume;LT/LSFT 从头,VERIFY 快)。
+真实、公开、可引用（**禁自造合成**）。代码输出预测任务，1488 train / 165 val，三平台同一份：
 
-## 训练数据(已定, 自动下, 真实可引用)
-**禁自造合成**;真实 code 推理数据集,三档深度阶梯(代码"输出预测":给函数+输入→预测返回值):
 | 档 | 数据集 | 引用 |
 |---|---|---|
-| 浅/中 | **CRUXEval** | Gu et al. 2024, arXiv:2401.03065 |
-| 深(numsteps 497-996) | **LiveCodeBench** exec-v2 | Jain et al. 2024, arXiv:2403.07974 |
-| 浅/中补量 | **MBPP** | Austin et al. 2021, arXiv:2108.07732 |
-数据托管本仓库 [`code_real_ladder/`](../code_real_ladder/)(1488 train / 165 val),脚本自动 clone。三平台**同一份真实三档**(一致可比)。
+| T0/T1 浅·中 | CRUXEval · MBPP | Gu et al. 2024, arXiv:2401.03065 · Austin et al. 2021, arXiv:2108.07732 |
+| T2 深 | LiveCodeBench execution-v2 | Jain et al. 2024, arXiv:2403.07974 |
 
-## 验证怎么看(golden rule: 必看 loss 收敛)
-`VERIFY=1` 跑完打印 `loss: A -> B` 和 `[PASS] loss 下降(收敛)` / `[WARN] 没降`。PASS = 训练代码正确、可上全量。
-
-在 Colab 上一次验完三个流程:开上面的 `verify_all_code.ipynb`(3 段,每段等价于 `VERIFY=1 bash train_X.sh`,顺序跑,看各自 loss 收敛)。
+详见 [`TRAINING.md`](TRAINING.md)。

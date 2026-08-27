@@ -4,12 +4,22 @@
 #   VERIFY=1 bash train_lsft_code.sh → 小规模验证代码(200行, S1=2/S2=3 ep, loss检查)
 #   (不带)                            → 全量(S1=8/S2=20) → lsft_code_out/hf
 # 数据: 真实三档(GitHub 自动下, 4字段 {problem,cot,solution,cot_answer})。底座 LLaMA-3.2-1B。
+# 配方 = 当初自造数据那版 cell_05a~05e 逐字段对齐(S1=8 / S2=20 / compression_rate=2 /
+#        topk_interpolation=10), 本次唯一变化 = 数据换成真实三档。
 # 驱动: 官方 DJC-GO-SOLO/Latent-SFT。含"老代码跑新 Colab"兼容补丁栈(见内注)。
 # 需要: A100/L4 + 联网。6 步串行较久。
 # ============================================================================
 set -e
+
+# ---------------- 底座 (写死; 可 env 覆盖) --------------
+# Latent-SFT 官方发布的是 GSM8K 数学 ckpt(DJCheng), 没有 code ckpt → 从 Llama 官方 instruct 底座起训
+# (和自造数据那版 cell_05a 一致)。BASE 名字必须含 llama/qwen/deepseek —— upstream 按子串判分支。
+# Meta 官方 repo 需申请 gating, 用 unsloth 同权重镜像免申请。
+BASE="${BASE:-unsloth/Llama-3.2-1B-Instruct}"
+DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
+
 VERIFY="${VERIFY:-0}"; if [ "$VERIFY" = "1" ]; then NROW=200; S1=2; S2=3; else NROW=0; S1=8; S2=20; fi
-WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK"; cd "$WORK"
+WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 echo "=== LSFT-code  [$([ $VERIFY = 1 ] && echo 验证VERIFY || echo 全量FULL)]  rows=$NROW S1=$S1 S2=$S2 ==="
 
 echo "[1/8] floor (transformers4.51.1 + deepspeed0.17.0 + peft0.15.2, 一条命令免互顶)"
@@ -17,9 +27,9 @@ pip -q install "transformers==4.51.1" "deepspeed==0.17.0" "tokenizers<0.22" "pef
 export WANDB_MODE=offline WANDB_API_KEY=""
 
 echo "[2/8] clone Latent-SFT + 三档数据"
-LSFT="$WORK/Latent-SFT"; BASE="unsloth/Llama-3.2-1B-Instruct"
+LSFT="$WORK/Latent-SFT"
 [ -d "$LSFT/.git" ] || git clone -q https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
-[ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || git clone -q https://github.com/ruijiezh67/LRM_colab_tasks.git "$WORK/lrm"
+[ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || git clone -q "$DATA_REPO" "$WORK/lrm"
 
 echo "[3/8] 兼容补丁 + 数据 + 改脚本"
 python - "$LSFT" "$WORK/lrm/code_real_ladder" "$BASE" "$NROW" "$S1" "$S2" <<'PY'
@@ -75,7 +85,7 @@ print(f"  patched(scatter/llama/tokenizer/config) | data {len(tr)} | scripts bas
 PY
 
 cd "$LSFT"; export NPROC_PER_NODE=1 MASTER_PORT=25001
-run_sh(){ echo ">>> bash script/$1"; bash "script/$1" 2>&1 | tee "$WORK/lsft_$1.log"; }
+run_sh(){ echo ">>> bash script/$1"; bash "script/$1" 2>&1 | tee "$WORK/run_logs/lsft_$1.log"; }
 last(){ ls -dt "$LSFT"/output/$1/code/checkpoint-*/$2 2>/dev/null | head -1; }
 
 echo "[4/8] stage1 encoder"; run_sh run_distill_stage1_encoder_gsm8k.sh
@@ -115,7 +125,7 @@ FINAL=$(ls -dt "$LSFT"/output/stage2_results/code/checkpoint-*/hf 2>/dev/null | 
 
 echo "[8/8] 结果"
 if [ "$VERIFY" = "1" ]; then
-  python - "$WORK"/lsft_run_distill_stage2_gsm8k.sh.log <<'PY'
+  python - "$WORK"/run_logs/lsft_run_distill_stage2_gsm8k.sh.log <<'PY'
 import re,sys
 ls=[float(x) for x in re.findall(r"'loss':\s*([0-9]+\.[0-9]+)", open(sys.argv[1],encoding="utf-8",errors="ignore").read())]
 if len(ls)>=2:
