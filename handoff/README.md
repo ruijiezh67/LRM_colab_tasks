@@ -44,4 +44,5 @@ bash train_all_code.sh             # 再全量真训练 → 3 个 ckpt
 | T0/T1 浅·中 | CRUXEval · MBPP | Gu et al. 2024, arXiv:2401.03065 · Austin et al. 2021, arXiv:2108.07732 |
 | T2 深 | LiveCodeBench execution-v2 | Jain et al. 2024, arXiv:2403.07974 |
 
-详见 [`TRAINING.md`](TRAINING.md)。
+**数据来源是锁死的**：脚本开训前校验 sha256，对不上直接中止；1653 行已全量逐字回溯到上述三个公开集。
+详见 [`TRAINING.md`](TRAINING.md) §4.1。

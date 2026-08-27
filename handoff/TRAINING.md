@@ -90,6 +90,43 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 深度阶梯是故意的：这批模型要用来测**难度 → latent 深度**的自适应，需要数据本身带真实的深度梯度。
 
+### 4.1 数据来源锁（机械强制，不靠自觉）
+
+**铁律：这三个模型绝对不能碰自造/合成数据。** 脚本里做了三层强制：
+
+1. **唯一数据来源**：三个脚本里没有任何数据生成器。全文搜 `gen_code_exec` / `gen_coding_lines` /
+   `synth` / 造数逻辑 —— 零命中。`random` 只在 `VERIFY=1` 取子集时做 seeded shuffle，不生成任何内容。
+2. **sha256 锁**：每个脚本在下载数据后、开训之前校验数据文件哈希，对不上就 `exit 1`
+   （脚本有 `set -e`，在任何 GPU 工作之前就停）。实测：掺进 1 条自造样本即被拦下。
+
+   | 文件 | sha256 |
+   |---|---|
+   | `colar_train.json` | `625bd944…c58748` |
+   | `colar_val.json` | `b64621ec…abcdc2` |
+   | `lt_train.jsonl` | `f81c395d…d2ab88` |
+   | `lt_val.jsonl` | `2157a3c3…42eb31` |
+   | `lsft_train.jsonl` | `178c8b1e…5e7d61` |
+   | `lsft_val.jsonl` | `06da2a05…0057194` |
+
+   要换数据必须先确认新数据的权威性 + 有效性，再更新脚本里的哈希 —— 改不动是故意的。
+3. **ckpt 自证来源**：CoLaR 的数据集目录名用 `coding_real_ladder`（**不是**当初合成那版的
+   `coding_mix`），所以训出来的 ckpt 自己的 `hparams.yaml` 里就写着真实数据来源，事后不会混淆。
+
+**逐行回溯核验结果**（1653 行 = 1488 train + 165 val，全量非抽样）：
+
+| 检查 | 结果 |
+|---|---|
+| 代码体逐字出现在 CRUXEval / LiveCodeBench / MBPP 原始 parquet | **1653 / 1653** |
+| `answer` 原样来自公开集字段（crux/lcb 的 output、mbpp 的 assert 右侧） | **1653 / 1653** |
+| `steps` 中间步逐句取自真实函数体（无虚构） | **1653 / 1653** |
+
+> **一处需要知情的区分**：题目和答案 100% 是公开集原文；但 `steps`（LT / Latent-SFT 拿它当 CoT 监督）
+> 是**从真实函数体机械抽取**的 —— 取前 ≤7 行非 `def`/`import` 语句，末尾补一句
+> "Executing on the input, the function returns {真实答案}."。这三个数据集本身不提供 CoT，所以
+> 必须派生。它**不是**被禁的那种"自造数据集"（那指算法凭空造题，如 `gen_code_exec` 的算术赋值链），
+> 但它是派生监督信号而非人写 CoT，如实说明。
+
+
 ---
 
 ## 5. 配方对照 —— 和自造数据那版逐字段对齐
@@ -108,7 +145,7 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 | `check_val_every_n_epoch` | 5 | 5 | ✅ 本次修正（曾误写 1） |
 | `seed` | 0 | 0 | ✅ |
 | lora r/alpha · compression · embed loss | 128/32 · 5 · mse | 官方 run.py 默认，未改 | ✅ |
-| **`dataset_name`** | coding_mix（自造） | coding_mix（**真实三档**） | ← 唯一变化 |
+| **`dataset_name`** | `coding_mix`（自造） | **`coding_real_ladder`**（真实三档） | ← 唯一变化 |
 
 **LT-Tuning**（基准 = `cell_02` 的 `qwen_code.yaml`，即 Kai 验证过的 `qwen_colab.yaml`）
 

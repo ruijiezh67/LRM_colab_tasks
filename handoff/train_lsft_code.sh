@@ -31,6 +31,34 @@ LSFT="$WORK/Latent-SFT"
 [ -d "$LSFT/.git" ] || git clone -q https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
 [ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || git clone -q "$DATA_REPO" "$WORK/lrm"
 
+echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
+python - "$WORK/lrm/code_real_ladder" <<'GUARD'
+import hashlib, os, sys
+SHA = {
+    "lsft_train.jsonl": "178c8b1e834a55bdd31d0b1eff9036bdf30c943421ebcd0b126946a3065e7d61",
+    "lsft_val.jsonl": "06da2a05f471b72ca7a39d75124338d01b1a3b831623ba76b3081acca0057194",
+}
+src = sys.argv[1]
+bad = 0
+for f, want in SHA.items():
+    p = os.path.join(src, f)
+    if not os.path.exists(p):
+        print("  X 数据文件缺失:", p); bad = 1; continue
+    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    if got != want:
+        print("  X 数据与锁定版本不符:", f)
+        print("    expect", want)
+        print("    actual", got)
+        bad = 1
+    else:
+        print("  ok", f)
+if bad:
+    print("  训练中止。铁律: 只允许真实公开数据(CRUXEval/LiveCodeBench/MBPP), 禁自造/合成。")
+    print("  若确需换数据, 必须先确认新数据的权威性+有效性, 再更新脚本里的 sha256。")
+    sys.exit(1)
+print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
+GUARD
+
 echo "[3/8] 兼容补丁 + 数据 + 改脚本"
 python - "$LSFT" "$WORK/lrm/code_real_ladder" "$BASE" "$NROW" "$S1" "$S2" <<'PY'
 import pathlib, sys, glob, json, random, re
