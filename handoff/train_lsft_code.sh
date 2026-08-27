@@ -91,6 +91,17 @@ if n > 0: random.seed(0); random.shuffle(tr); tr = tr[:n]
 D = pathlib.Path(LSFT, "data"); D.mkdir(exist_ok=True)
 open(D/"code-train.jsonl", "w", encoding="utf-8").write("\n".join(json.dumps(r, ensure_ascii=False) for r in tr))
 TRAIN = str(D/"code-train.jsonl")
+# --- eval 文件: upstream README 要 {problem, solution, answer}(见 eval/*_hf_batch.py 的 get_answer_text) ---
+#     必须带裸 answer。缺了它 upstream 会回退用 solution(=整条 CoT)当标准答案判分, 准确率会全错。
+#     answer 从 cot_answer 的 boxed{...} 里剥出来, 不改动被 sha256 锁定的数据文件。
+va = [json.loads(l) for l in open(f"{src}/lsft_val.jsonl", encoding="utf-8") if l.strip()]
+def _bare(ca):
+    m = re.search(r"boxed\{(.*)\}\s*$", ca, re.S)
+    return (m.group(1) if m else ca).strip()
+ev = [{"problem": r["problem"], "solution": r["solution"], "answer": _bare(r["cot_answer"])} for r in va]
+assert all(e["answer"] and "boxed" not in e["answer"] for e in ev), "eval answer 提取失败"
+open(D/"code-eval.jsonl", "w", encoding="utf-8").write("\n".join(json.dumps(r, ensure_ascii=False) for r in ev))
+print(f"  eval 文件: {len(ev)} 行 -> {D}/code-eval.jsonl (problem/solution/answer)")
 # --- 改 run_distill 脚本: base + data + epochs + no-flash + report none + save_total 2 ---
 def patch(fn, repls):
     p = pathlib.Path(LSFT, "script", fn); s = p.read_text(encoding="utf-8")

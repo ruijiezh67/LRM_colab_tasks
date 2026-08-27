@@ -127,6 +127,32 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 > 但它是派生监督信号而非人写 CoT，如实说明。
 
 
+### 4.2 格式转换（每个脚本都做，字段已对着上游源码核过）
+
+三个平台的数据格式互不相同，脚本各自负责转换。下表的"上游要什么"是**读源码**确认的，不是照文档猜的：
+
+| 平台 | 转换 | 上游要什么（出处） |
+|---|---|---|
+| **CoLaR** | `colar_{train,val}.json` → `$WS/datasets/text_reasoning/coding_real_ladder/{train,val,test}.json` | `src/datasets/qsa.py`：每条要 `question` / `answer` / `steps`，且 **`steps` 必须是 list**（它取 `len()` 当 `n_steps`）。目录路径由 `dataset_name` 决定；`fit` 阶段读 train+val，`test` 阶段读 test，所以三个文件都得写 |
+| **LT-Tuning** | `lt_{train,val}.jsonl` → `data_lt/lt_code_{train,val}.jsonl`（同构，只做子集切分） | `dataset.py:401-403`：读 `question`、`steps`（`"\n".join` 成 reasoning_chain）、`answer`；训练目标拼成 `reasoning_chain + "\n### " + answer` |
+| **Latent-SFT** | `lsft_train.jsonl` → `Latent-SFT/data/code-train.jsonl`；`lsft_val.jsonl` → `code-eval.jsonl`（**换 schema**） | README §121 + 源码：**训练**要 `problem` / `cot` / `cot_answer`；**eval**要 `problem` / `solution` / `answer` |
+
+**Latent-SFT 的字段分工**（容易搞反，写清楚）：
+
+| 字段 | 装什么 | 谁读 |
+|---|---|---|
+| `problem` | 题目 | 训练 + eval |
+| `cot` | **被压进 latent 的推理链** | `src/stage1/data.py:395` → `cot_content_ids` |
+| `solution` | 同 `cot`（推理链） | 软标签生成器 `generate_latent_soft_label_lora_batch.py:79`（`cot = examples['solution']`）+ eval 的 CoT 参照 |
+| `cot_answer` | `\boxed{答案}` —— latent 之后要输出的目标 | 训练的 `input_suffix` |
+
+所以 `cot_answer` 里**只放 boxed 答案、不放推理**是对的：推理在 `cot` 里被压成 latent，模型消费完 latent 后才吐 boxed 答案。
+
+> ⚠️ **eval 文件必须带裸 `answer`**。上游 `get_answer_text` 在缺 `answer` 时会**回退用 `solution` 当标准答案**——
+> 而 `solution` 是整条 CoT，那样判分会全错。脚本从 `cot_answer` 的 `\boxed{...}` 里剥出裸答案生成
+> `code-eval.jsonl`（165/165 提取成功），不改动被 sha256 锁定的数据文件。
+
+
 ---
 
 ## 5. 配方对照 —— 和自造数据那版逐字段对齐
