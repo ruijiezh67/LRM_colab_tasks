@@ -11,12 +11,11 @@
 git clone https://github.com/ruijiezh67/LRM_colab_tasks.git
 cd LRM_colab_tasks/handoff
 
-# 建议先花 ~30min 验证代码没问题(小规模, 不出正式 ckpt)
-VERIFY=1 bash train_all_code.sh
-
-# 确认三个都 [PASS] 后, 全量真训练 → 出 3 个 ckpt
-bash train_all_code.sh
+bash train_all_code.sh    # 训完三个 ckpt
 ```
+
+> **管线已经验证过**（三平台小规模跑通、loss 收敛已确认），**不需要你再跑一遍验证**，直接全量训练。
+> `VERIFY=1` 只是出问题时的排错开关，见 §7。
 
 单独跑某一个：
 
@@ -29,7 +28,7 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `VERIFY=1` | 关 | 小规模验证模式：200 行 + 少 epoch + loss 收敛检查 |
+| `VERIFY=1` | 关 | **排错用**，正常流程不需要。训练报错时用它跑 200 行快速复现，不出正式 ckpt |
 | `WORK=/你的路径` | `./crux_retrain_work` | 产物和日志落哪 |
 | `ONLY=colar,lt,lsft` | 全部 | 总脚本只跑指定平台 |
 
@@ -213,8 +212,8 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 - **禁自造数据**：训练数据全部真实公开可引用（§4），旧的合成数据 ckpt 已归档标记不用。
 - **三平台同一份数据**：可比性铁律，跨平台结论才成立。
-- **golden rule = 必看 loss 收敛**：`VERIFY=1` 跑完打印 `loss: A -> B` 和 `[PASS]/[WARN]`。
-  PASS 才能上全量。LT 额外加了三阶段守卫。
+- **golden rule = 必看 loss 收敛**：训练日志里 loss 必须单调下降；LT 额外有三阶段守卫
+  （三个 stage 名没全出现就报 `[FAIL]`）。这一关**已经验过**，你只需在训练结束时扫一眼日志确认没退化。
 - **日志落盘 + tee stdout**：所有训练输出同时上屏和写 `$WORK/run_logs/*.log`，跑挂了能查。
 - **依赖 floor 逐平台钉死**：三套 transformers 版本互斥，每个脚本装自己那套（这些版本号是之前
   在 Colab 上一个一个撞出来的，别随手升级）。
@@ -231,8 +230,9 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 | Llama 底座 403 / gated | 默认已用 `unsloth/…` 镜像。要用 Meta 官方就先 `huggingface-cli login` 并申请 |
 | 第二个平台开跑后报版本错 | 正常，每段会重装自己的 floor。别并行跑，别中途手动升级 pip 包 |
 | OOM | 调小 `per_device_train_batch_size` 并同步调大 `gradient_accumulation_steps`（保持等效 batch），CoLaR 用 `batch_size=` / `accumulate_grad_batches=` |
-| 想中途接着跑 | 重跑同一个脚本。CoLaR 有 resume；LT/LSFT 从头（先用 `VERIFY=1` 确认没问题再上全量） |
+| 想中途接着跑 | 重跑同一个脚本。CoLaR 有 resume；LT/LSFT 从头 |
 | 跑挂了要看现场 | `$WORK/run_logs/` 下每个平台/每步一个 log |
+| 报错想快速复现 | `VERIFY=1 bash train_X.sh` —— 200 行 + 少 epoch，几分钟跑完，专用于排错（正常流程不需要跑它） |
 
 ---
 

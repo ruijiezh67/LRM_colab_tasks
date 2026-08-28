@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================================
 # 一条命令训完三个 code LRM ckpt。   bash train_all_code.sh
-#   VERIFY=1 bash train_all_code.sh   → 三个都跑小规模验证(~30min, 先确认代码没问题)
-#   bash train_all_code.sh            → 三个都全量真训练, 出 3 个 ckpt
+#   VERIFY=1 bash train_all_code.sh   → 排错用: 三个都跑 200 行小规模(正常流程不需要, 管线已验证过)
+#   bash train_all_code.sh            → 正常用法: 三个都全量真训练, 出 3 个 ckpt
 #   ONLY=colar,lt bash train_all_code.sh   → 只跑指定的(colar / lt / lsft, 逗号分隔)
 #
 # 为什么要串行不并行: 三个平台 pip 依赖互相冲突(transformers 4.45.2 / 4.55.4 / 4.51.1),

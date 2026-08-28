@@ -9,9 +9,10 @@
 git clone https://github.com/ruijiezh67/LRM_colab_tasks.git
 cd LRM_colab_tasks/handoff
 
-VERIFY=1 bash train_all_code.sh    # 先小规模验证代码 (~30min), 看三个都 [PASS]
-bash train_all_code.sh             # 再全量真训练 → 3 个 ckpt
+bash train_all_code.sh             # 训完三个 ckpt。就这一条命令。
 ```
+
+> 管线已经验证过了（小规模跑通 + loss 收敛），**你不用再跑一遍验证**，直接全量训练即可。
 
 不需要准备任何东西 —— 依赖、官方代码、数据、底座权重，脚本全自动下。要一块 GPU + 联网。
 
@@ -31,7 +32,7 @@ bash train_all_code.sh             # 再全量真训练 → 3 个 ckpt
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `VERIFY=1` | 关 | 小规模验证：200 行 + 少 epoch + loss 收敛检查，不出正式 ckpt |
+| `VERIFY=1` | 关 | **排错用**，正常不需要。只在训练报错时用它跑 200 行快速复现问题，不出正式 ckpt |
 | `WORK=/路径` | `./crux_retrain_work` | 产物和日志落哪（日志在 `$WORK/run_logs/`） |
 | `ONLY=colar,lt,lsft` | 全部 | 总脚本只跑指定平台 |
 
