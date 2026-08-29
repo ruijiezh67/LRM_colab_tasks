@@ -10,6 +10,7 @@
 # 需要: A100/L4 + 联网。6 步串行较久。
 # ============================================================================
 set -e
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
 
 # ---------------- 底座 (写死; 可 env 覆盖) --------------
 # Latent-SFT 官方发布的是 GSM8K 数学 ckpt(DJCheng), 没有 code ckpt → 从 Llama 官方 instruct 底座起训
@@ -20,19 +21,22 @@ DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
 
 VERIFY="${VERIFY:-0}"; if [ "$VERIFY" = "1" ]; then NROW=200; S1=2; S2=3; else NROW=0; S1=8; S2=20; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
+. "$HERE/_common.sh"
+setup_venv lsft
+print_env
 echo "=== LSFT-code  [$([ $VERIFY = 1 ] && echo 验证VERIFY || echo 全量FULL)]  rows=$NROW S1=$S1 S2=$S2 ==="
 
 echo "[1/8] floor (transformers4.51.1 + deepspeed0.17.0 + peft0.15.2, 一条命令免互顶)"
-pip -q install "transformers==4.51.1" "deepspeed==0.17.0" "tokenizers<0.22" "peft==0.15.2" "datasets==3.6.0" pylatexenc word2number omegaconf accelerate huggingface_hub
+pipi "transformers==4.51.1" "deepspeed==0.17.0" "tokenizers<0.22" "peft==0.15.2" "datasets==3.6.0" pylatexenc word2number omegaconf accelerate huggingface_hub
 export WANDB_MODE=offline WANDB_API_KEY=""
 
 echo "[2/8] clone Latent-SFT + 三档数据"
 LSFT="$WORK/Latent-SFT"
-[ -d "$LSFT/.git" ] || git clone -q https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
-[ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || git clone -q "$DATA_REPO" "$WORK/lrm"
+[ -d "$LSFT/.git" ] || gh_clone https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
+[ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 
 echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-python - "$WORK/lrm/code_real_ladder" <<'GUARD'
+"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
 import hashlib, os, sys
 SHA = {
     "lsft_train.jsonl": "178c8b1e834a55bdd31d0b1eff9036bdf30c943421ebcd0b126946a3065e7d61",
@@ -60,7 +64,7 @@ print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval /
 GUARD
 
 echo "[3/8] 兼容补丁 + 数据 + 改脚本"
-python - "$LSFT" "$WORK/lrm/code_real_ladder" "$BASE" "$NROW" "$S1" "$S2" <<'PY'
+"$PY" - "$LSFT" "$WORK/lrm/code_real_ladder" "$BASE" "$NROW" "$S1" "$S2" <<'PY'
 import pathlib, sys, glob, json, random, re
 LSFT, src, BASE, n, S1, S2 = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
 # --- 补丁1: modeling scatter dtype cast (新torch严格) ---
@@ -130,7 +134,7 @@ last(){ ls -dt "$LSFT"/output/$1/code/checkpoint-*/$2 2>/dev/null | head -1; }
 echo "[4/8] stage1 encoder"; run_sh run_distill_stage1_encoder_gsm8k.sh
 ENC=$(last stage1_encoder hf)
 echo "[5/8] stage1 decoder + union"
-python - "$LSFT" "$ENC" "$BASE" <<'PY'
+"$PY" - "$LSFT" "$ENC" "$BASE" <<'PY'
 import pathlib,sys; LSFT,ENC,BASE=sys.argv[1:4]
 for fn,repls in [("run_distill_stage1_decoder_gsm8k.sh",[('encoder_name_or_path="<path-to-stage1-encoder-checkpoint>"',f'encoder_name_or_path="{ENC}"'),('decoder_name_or_path="<path-or-hf-id-of-your-base-model>"',f'decoder_name_or_path="{BASE}"')])]:
     p=pathlib.Path(LSFT,"script",fn); s=p.read_text(encoding="utf-8")
@@ -138,7 +142,7 @@ for fn,repls in [("run_distill_stage1_decoder_gsm8k.sh",[('encoder_name_or_path=
     p.write_text(s,encoding="utf-8")
 PY
 run_sh run_distill_stage1_decoder_gsm8k.sh; DEC=$(last stage1_decoder hf)
-python - "$LSFT" "$ENC" "$DEC" <<'PY'
+"$PY" - "$LSFT" "$ENC" "$DEC" <<'PY'
 import pathlib,sys; LSFT,ENC,DEC=sys.argv[1:4]
 p=pathlib.Path(LSFT,"script","run_distill_stage1_union_gsm8k.sh"); s=p.read_text(encoding="utf-8")
 s=s.replace('encoder_name_or_path="<path-to-stage1-encoder-checkpoint-hf>"',f'encoder_name_or_path="{ENC}"').replace('decoder_name_or_path="<path-to-stage1-decoder-checkpoint-hf>"',f'decoder_name_or_path="{DEC}"')
@@ -148,12 +152,12 @@ run_sh run_distill_stage1_union_gsm8k.sh; UNI=$(last stage1_union lora_adapter)
 
 echo "[6/8] soft labels + merge"
 DEC_LORA=$(last stage1_decoder lora_adapter)
-python "generate_latent_soft_label_lora_batch.py" --encoder_model_path "$ENC" --decoder_model_path "$DEC" --lora_path "$UNI" --save_path "$LSFT/data/soft_code" --data_path "$LSFT/data/code-train.jsonl" --mp_size 1 --batch_size 16 --dtype bfloat16 --compression_rate 2 --topk_interpolation 10
-python "merge_lora.py" --base_model_path "$DEC" --lora_path "${DEC_LORA:-$UNI}" --output_path "$LSFT/output/merged" --output_subdir decoder_hf --dtype bfloat16 --attn_implementation sdpa --device_map auto
+"$PY" "generate_latent_soft_label_lora_batch.py" --encoder_model_path "$ENC" --decoder_model_path "$DEC" --lora_path "$UNI" --save_path "$LSFT/data/soft_code" --data_path "$LSFT/data/code-train.jsonl" --mp_size 1 --batch_size 16 --dtype bfloat16 --compression_rate 2 --topk_interpolation 10
+"$PY" "merge_lora.py" --base_model_path "$DEC" --lora_path "${DEC_LORA:-$UNI}" --output_path "$LSFT/output/merged" --output_subdir decoder_hf --dtype bfloat16 --attn_implementation sdpa --device_map auto
 MERGED="$LSFT/output/merged/decoder_hf"
 
 echo "[7/8] stage2 (final base)"
-python - "$LSFT" "$MERGED" <<'PY'
+"$PY" - "$LSFT" "$MERGED" <<'PY'
 import pathlib,sys; LSFT,M=sys.argv[1],sys.argv[2]
 p=pathlib.Path(LSFT,"script","run_distill_stage2_gsm8k.sh"); s=p.read_text(encoding="utf-8")
 s=s.replace('latent_model_path="<path-to-stage1-best-checkpoint-hf>"',f'latent_model_path="{M}"').replace('train_latent_soft_label_path="<path-to-train-latent-soft-label-chunks>"',f'train_latent_soft_label_path="{LSFT}/data/soft_code"')
@@ -164,7 +168,7 @@ FINAL=$(ls -dt "$LSFT"/output/stage2_results/code/checkpoint-*/hf 2>/dev/null | 
 
 echo "[8/8] 结果"
 if [ "$VERIFY" = "1" ]; then
-  python - "$WORK"/run_logs/lsft_run_distill_stage2_gsm8k.sh.log <<'PY'
+  "$PY" - "$WORK"/run_logs/lsft_run_distill_stage2_gsm8k.sh.log <<'PY'
 import re,sys
 ls=[float(x) for x in re.findall(r"'loss':\s*([0-9]+\.[0-9]+)", open(sys.argv[1],encoding="utf-8",errors="ignore").read())]
 if len(ls)>=2:

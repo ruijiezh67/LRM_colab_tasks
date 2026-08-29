@@ -231,7 +231,11 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 | 第二个平台开跑后报版本错 | 正常，每段会重装自己的 floor。别并行跑，别中途手动升级 pip 包 |
 | OOM | 调小 `per_device_train_batch_size` 并同步调大 `gradient_accumulation_steps`（保持等效 batch），CoLaR 用 `batch_size=` / `accumulate_grad_batches=` |
 | 想中途接着跑 | 重跑同一个脚本。CoLaR 有 resume；LT/LSFT 从头 |
-| 跑挂了要看现场 | `$WORK/run_logs/` 下每个平台/每步一个 log |
+| **`python: command not found` (rc=127)** | 你的机器只有 `python3`。已修：脚本自动探测。仍失败就 `PY=/your/bin/python bash ...` |
+| `huggingface-cli` / `deepspeed` 找不到 | 已改成 `$PY -m ...` 调用，不再依赖 PATH |
+| HF / GitHub 下载卡住或超时（国内） | `CN=1 bash ...`，见 §9.4 |
+| 并行跑时包版本互相覆盖 | 用 `PARALLEL=1`（自动 venv 隔离），不要手动同时跑三个脚本 |
+| 跑挂了要看现场 | `$WORK/run_logs/` 下每个平台/每步一个 log；并行模式还有 `<平台>.stdout.log` |
 | 报错想快速复现 | `VERIFY=1 bash train_X.sh` —— 200 行 + 少 epoch，几分钟跑完，专用于排错（正常流程不需要跑它） |
 
 ---
@@ -241,3 +245,53 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 把三个产物打包发回来即可（CoLaR 是单个 `.ckpt` ~120MB；LT / LSFT 是 HF 目录 ~2.5–3GB）。
 下一步我们会对三个 ckpt 做统一的机制验证（latent 是否真参与推理、深度是否随难度自适应、
 课程是否跑满、推理有没有塌），三平台同数据同判据，横向可比。
+
+---
+
+## 9. 运行环境 / 多卡 / 国内网络
+
+### 9.1 解释器（别假设有 `python`）
+很多 Linux 只装了 `python3`，没有 `python` 这个别名，裸写 `python` 会 `command not found`（rc=127）。
+脚本现在统一按 `python3` → `python` 探测，并且 **pip / huggingface-cli / deepspeed 全部走 `$PY -m ...`**，
+不依赖这些命令在 PATH 上。要手动指定：`PY=/your/env/bin/python bash train_X.sh`。
+
+### 9.2 单卡 / 多卡 —— 没有写 DDP，也不建议写
+三个训练都是**单卡任务**。多卡机器上正确的用法是**一卡一任务并行**：
+
+```bash
+PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
+```
+
+不写 DDP 是有意的：① 三个任务本来就互相独立，一卡一个就能把并行度吃满；
+② 数据集只有 1488 行 / ~0.25M token，单步计算量小，DDP 的通信开销占比高、收益有限；
+③ 卡上有别的任务时 DDP 往往更慢。要单独指定某张卡：`GPU=3 bash train_lt_code.sh`。
+
+### 9.3 并行为什么要 venv
+三个平台的 transformers 版本互斥（4.45.2 / 4.55.4 / 4.51.1），共用一个 Python 环境会互相覆盖——
+这也是原来只敢串行的原因。`PARALLEL=1` 会自动 `VENV=1`，给每个平台建一个独立 venv
+（`--system-site-packages`，继承已有的 torch 等重包，只隔离冲突的那几个）。
+串行跑默认不建 venv，保持原行为。
+
+### 9.4 国内网络
+`CN=1` 一键切换（也可单独覆盖任意一项）：
+
+| 走哪 | 默认 | `CN=1` |
+|---|---|---|
+| HuggingFace | 官方 | `HF_ENDPOINT=https://hf-mirror.com` |
+| pip | 系统配置 | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
+| GitHub clone | 官方 | `GH_PROXY=https://ghfast.top/` 前缀 |
+
+要换别的镜像直接给环境变量，例如 `HF_ENDPOINT=... PIP_INDEX_URL=... GH_PROXY=... bash train_all_code.sh`。
+脚本启动时会打印实际生效的解释器 / GPU / 三个镜像，先看这几行对不对再等。
+
+### 9.5 训练规模 · 显存 · 时长
+
+| 平台 | 训练量 | 优化步数 | 显存（估算） | 时长（估算，A800 单卡） |
+|---|---|---|---|---|
+| CoLaR | 25 epoch，LoRA r128，bs4×accum4 | ~2300 | ~12–16 GB | ~1 h |
+| LT-Tuning | 3 epoch = 三阶段各 1，全参微调，bs4×accum4 | ~280 | ~30 GB | ~0.5 h |
+| Latent-SFT | 6 步：S1 encoder/decoder/union 各 8ep → 软标签 → merge → S2 20ep | 最多 | ~20–30 GB | ~3–5 h |
+
+> ⚠️ 显存和时长是按模型规模 + 1488 行 / median 141 token 估的，**没有在 A800 上实测过**。
+> 80GB 的卡余量很大。真跑时以第一个 epoch 的实际占用为准；OOM 就调小
+> `per_device_train_batch_size` 并同步调大 `gradient_accumulation_steps`（保持等效 batch 不变）。

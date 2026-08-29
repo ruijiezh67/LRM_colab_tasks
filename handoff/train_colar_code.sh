@@ -9,6 +9,7 @@
 # 需要: 单卡 GPU(A100/L4/T4-16G 皆可) + 联网。
 # ============================================================================
 set -e
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
 
 # ---------------- 底座 / warm-start ckpt (全部写死, 无需手动准备; 可用 env 覆盖) --------------
 # 底座 LLM: Llama-3.2-1B-Instruct。Meta 官方 repo 需申请 gating, 用 unsloth 同权重镜像免申请。
@@ -23,18 +24,21 @@ VERIFY="${VERIFY:-0}"
 if [ "$VERIFY" = "1" ]; then NROW=200; EP=3;  TAG=verify_smoke; else NROW=0; EP=25; TAG=cruxreal_gsmwarm; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 LOG="$WORK/run_logs/colar_train.log"
+. "$HERE/_common.sh"
+setup_venv colar
+print_env
 echo "=== CoLaR-code  [$([ "$VERIFY" = 1 ] && echo 验证VERIFY || echo 全量FULL)]  rows=$NROW epochs=$EP ==="
 
 echo "[1/5] deps (官方 CoLaR 兼容 floor)"
-pip -q install "transformers==4.45.2" "lightning==2.5.1.post0" "peft==0.15.2" "omegaconf==2.3.0" "numpy>=2.0,<2.3" sentencepiece accelerate
-pip -q install --force-reinstall --no-deps "huggingface_hub==0.34.4"
+pipi "transformers==4.45.2" "lightning==2.5.1.post0" "peft==0.15.2" "omegaconf==2.3.0" "numpy>=2.0,<2.3" sentencepiece accelerate
+pipi --force-reinstall --no-deps "huggingface_hub==0.34.4"
 
 echo "[2/5] 官方 CoLaR 代码 + 三档真实数据"
-[ -f "$WORK/colar/run.py" ] || git clone -q https://github.com/xiaomi-research/colar.git "$WORK/colar"
-[ -f "$WORK/lrm/code_real_ladder/colar_train.json" ] || git clone -q "$DATA_REPO" "$WORK/lrm"
+[ -f "$WORK/colar/run.py" ] || gh_clone https://github.com/xiaomi-research/colar.git "$WORK/colar"
+[ -f "$WORK/lrm/code_real_ladder/colar_train.json" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 
 echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-python - "$WORK/lrm/code_real_ladder" <<'GUARD'
+"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
 import hashlib, os, sys
 SHA = {
     "colar_train.json": "625bd94402c1fd5ec167bcbc98ab66e587a45bf6aba3a0effb6749feb9c58748",
@@ -64,13 +68,13 @@ GUARD
 echo "[3/5] 底座 $LLAMA_ID + warm-start $COLAR_WARM_REPO"
 WS="$WORK/ws"; mkdir -p "$WS/models/llms" "$WS/datasets/text_reasoning/coding_real_ladder"
 LLAMA="$WS/models/llms/Llama-3.2-1B-Instruct"
-[ -f "$LLAMA/config.json" ] || huggingface-cli download "$LLAMA_ID" --local-dir "$LLAMA" --exclude "original/*"
+[ -f "$LLAMA/config.json" ] || hfdl "$LLAMA_ID" --local-dir "$LLAMA" --exclude "original/*"
 GSM="$WORK/colar_hf/$COLAR_WARM_FILE"
-[ -f "$GSM" ] || huggingface-cli download "$COLAR_WARM_REPO" "$COLAR_WARM_FILE" --local-dir "$WORK/colar_hf"
+[ -f "$GSM" ] || hfdl "$COLAR_WARM_REPO" "$COLAR_WARM_FILE" --local-dir "$WORK/colar_hf"
 [ -f "$GSM" ] || { echo "❌ warm-start ckpt 没下到: $GSM"; exit 1; }
 
 echo "[4/5] 数据 → coding_real_ladder (qsa 格式)$([ "$NROW" -gt 0 ] && echo ", 取前 $NROW 验证")"
-python - "$WORK/lrm/code_real_ladder" "$WS/datasets/text_reasoning/coding_real_ladder" "$NROW" <<'PY'
+"$PY" - "$WORK/lrm/code_real_ladder" "$WS/datasets/text_reasoning/coding_real_ladder" "$NROW" <<'PY'
 import json, sys, random
 src, dst, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
 tr = json.load(open(f"{src}/colar_train.json", encoding="utf-8"))
@@ -86,13 +90,13 @@ PY
 echo "[5/5] 训练 (run.py, warm colar-gsm, ${EP}ep)"
 cd "$WORK/colar"
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONIOENCODING=utf-8 TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 \
-python -u run.py --model=colar --dataset=qsa --devices=0 --workspace_path="$WS" --load_ckpt_path="$GSM" \
+"$PY" -u run.py --model=colar --dataset=qsa --devices=0 --workspace_path="$WS" --load_ckpt_path="$GSM" \
     --log_suffix=$TAG --seed=0 dataset_name=coding_real_ladder model_id=Llama-3.2-1B-Instruct \
     batch_size=4 accumulate_grad_batches=4 max_epochs=$EP check_val_every_n_epoch=5 2>&1 | tee "$LOG"
 
 if [ "$VERIFY" = "1" ]; then
   echo "=== loss 收敛检查 (golden rule) ==="
-  python - "$LOG" <<'PY'
+  "$PY" - "$LOG" <<'PY'
 import re, sys
 txt = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
 ls = [float(x) for x in re.findall(r"(?:train_)?loss[=:\s]+([0-9]+\.[0-9]+)", txt)]

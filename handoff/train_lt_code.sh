@@ -10,6 +10,7 @@
 # 需要: 单卡 GPU(A100/L4) + 联网。
 # ============================================================================
 set -e
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
 
 # ---------------- 底座 (写死; 可 env 覆盖) --------------
 # LT-Tuning 论文没放权重, 官方也没有 code ckpt → 从 Qwen 官方 instruct 底座起训(和自造数据那版一致)。
@@ -20,19 +21,22 @@ DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
 VERIFY="${VERIFY:-0}"; if [ "$VERIFY" = "1" ]; then NROW=200; else NROW=0; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 LOG="$WORK/run_logs/lt_train.log"
+. "$HERE/_common.sh"
+setup_venv lt
+print_env
 OUT="$WORK/lt_code_out"
 echo "=== LT-code  [$([ "$VERIFY" = 1 ] && echo 验证VERIFY || echo 全量FULL)]  rows=$NROW  三阶段课程 ==="
 
 echo "[1/4] floor (torch2.7.1 / transformers4.55.4 / deepspeed0.18.3 / peft0.18.0)"
-pip -q install "torch==2.7.1" "torchvision==0.22.1" "transformers==4.55.4" "datasets==4.2.0" "deepspeed==0.18.3" "peft==0.18.0" omegaconf accelerate
+pipi "torch==2.7.1" "torchvision==0.22.1" "transformers==4.55.4" "datasets==4.2.0" "deepspeed==0.18.3" "peft==0.18.0" omegaconf accelerate
 
 echo "[2/4] clone 驱动@$LT_COMMIT + model.py sdpa patch + 三档数据 + config"
 LT="$WORK/Latent-Thoughts-Tuning"
-[ -d "$LT/.git" ] || git clone -q https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
+[ -d "$LT/.git" ] || gh_clone https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
 git -C "$LT" checkout -q "$LT_COMMIT"
-[ -f "$WORK/lrm/code_real_ladder/lt_train.jsonl" ] || git clone -q "$DATA_REPO" "$WORK/lrm"
+[ -f "$WORK/lrm/code_real_ladder/lt_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-python - "$WORK/lrm/code_real_ladder" <<'GUARD'
+"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
 import hashlib, os, sys
 SHA = {
     "lt_train.jsonl": "f81c395dd3172a023a386ce9686d9e409fffeedb9801812edf2fb94db4d2ab88",
@@ -59,7 +63,7 @@ if bad:
 print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
 GUARD
 
-python - "$LT" "$WORK/lrm/code_real_ladder" "$WORK/data_lt" "$NROW" "$OUT" "$QWEN_ID" <<'PY'
+"$PY" - "$LT" "$WORK/lrm/code_real_ladder" "$WORK/data_lt" "$NROW" "$OUT" "$QWEN_ID" <<'PY'
 import pathlib, sys, json, random
 LT, src, dst, n, OUT, QWEN = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
 
@@ -179,10 +183,10 @@ PY
 
 echo "[3/4] 训练 (deepspeed --num_gpus 1 run.py, stage0→1→2)"
 cd "$LT"
-deepspeed --num_gpus 1 run.py configs/qwen_code.yaml 2>&1 | tee "$LOG"
+dsrun --num_gpus 1 run.py configs/qwen_code.yaml 2>&1 | tee "$LOG"
 
 echo "[4/4] 结果"
-python - "$LOG" "$VERIFY" <<'PY'
+"$PY" - "$LOG" "$VERIFY" <<'PY'
 import re, sys
 txt = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
 # 阶段守卫: 三个 stage 都必须出现, 否则课程没跑满(只到 stage0 = 没有 latent)

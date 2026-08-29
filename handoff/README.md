@@ -9,7 +9,13 @@
 git clone https://github.com/ruijiezh67/LRM_colab_tasks.git
 cd LRM_colab_tasks/handoff
 
-bash train_all_code.sh             # 训完三个 ckpt。就这一条命令。
+bash train_all_code.sh                          # 单卡串行, 训完三个 ckpt
+
+# 多卡机器: 一个任务一张卡并行(推荐, 三个任务本来就互相独立)
+PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
+
+# 国内网络: 开 HF / pip / GitHub 镜像
+CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 ```
 
 > 管线已经验证过了（小规模跑通 + loss 收敛），**你不用再跑一遍验证**，直接全量训练即可。
@@ -35,6 +41,10 @@ bash train_all_code.sh             # 训完三个 ckpt。就这一条命令。
 | `VERIFY=1` | 关 | **排错用**，正常不需要。只在训练报错时用它跑 200 行快速复现问题，不出正式 ckpt |
 | `WORK=/路径` | `./crux_retrain_work` | 产物和日志落哪（日志在 `$WORK/run_logs/`） |
 | `ONLY=colar,lt,lsft` | 全部 | 总脚本只跑指定平台 |
+| `PARALLEL=1` `GPUS=0,1,2` | 关 | 一个平台一张卡并行；自动开 venv 隔离 |
+| `CN=1` | 关 | 国内镜像：HF→hf-mirror、pip→清华源、GitHub→ghfast 代理 |
+| `GPU=3` | — | 单个脚本绑一张卡（等价 `CUDA_VISIBLE_DEVICES`）|
+| `PY=/path/python` | 自动探测 | 手动指定解释器（默认按 `python3`→`python` 找）|
 
 ## 数据
 
