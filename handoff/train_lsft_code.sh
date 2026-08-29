@@ -11,6 +11,7 @@
 # ============================================================================
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
+. "$HERE/config.sh"   # 所有可调参数集中在 config.sh
 
 # ---------------- 底座 (写死; 可 env 覆盖) --------------
 # Latent-SFT 官方发布的是 GSM8K 数学 ckpt(DJCheng), 没有 code ckpt → 从 Llama 官方 instruct 底座起训
@@ -19,7 +20,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之�
 BASE="${BASE:-unsloth/Llama-3.2-1B-Instruct}"
 DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
 
-VERIFY="${VERIFY:-0}"; if [ "$VERIFY" = "1" ]; then NROW=200; S1=2; S2=3; else NROW=0; S1=8; S2=20; fi
+if [ "$VERIFY" = "1" ]; then NROW=$VERIFY_ROWS; S1=2; S2=3; else NROW=0; S1=$LSFT_S1; S2=$LSFT_S2; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 . "$HERE/_common.sh"
 setup_venv lsft

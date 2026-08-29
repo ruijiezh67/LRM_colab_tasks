@@ -11,6 +11,7 @@
 # ============================================================================
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
+. "$HERE/config.sh"   # 所有可调参数集中在 config.sh
 
 # ---------------- 底座 (写死; 可 env 覆盖) --------------
 # LT-Tuning 论文没放权重, 官方也没有 code ckpt → 从 Qwen 官方 instruct 底座起训(和自造数据那版一致)。
@@ -18,7 +19,7 @@ QWEN_ID="${QWEN_ID:-Qwen/Qwen2.5-1.5B-Instruct}"
 LT_COMMIT="${LT_COMMIT:-c18aac6}"
 DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
 
-VERIFY="${VERIFY:-0}"; if [ "$VERIFY" = "1" ]; then NROW=200; else NROW=0; fi
+if [ "$VERIFY" = "1" ]; then NROW=$VERIFY_ROWS; else NROW=0; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 LOG="$WORK/run_logs/lt_train.log"
 . "$HERE/_common.sh"
@@ -63,9 +64,10 @@ if bad:
 print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
 GUARD
 
-"$PY" - "$LT" "$WORK/lrm/code_real_ladder" "$WORK/data_lt" "$NROW" "$OUT" "$QWEN_ID" <<'PY'
+"$PY" - "$LT" "$WORK/lrm/code_real_ladder" "$WORK/data_lt" "$NROW" "$OUT" "$QWEN_ID" "$LT_STAGE_EP" <<'PY'
 import pathlib, sys, json, random
-LT, src, dst, n, OUT, QWEN = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
+LT, src, dst, n, OUT, QWEN, SEP = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], int(sys.argv[7])
+NTE = 3 * SEP   # 不变式: num_train_epochs 必须 = sum(stage_epochs) = 3 × 每阶段epoch
 
 # (a) model.py: flash_attention_2 -> sdpa 默认 + SoftSeft 别名(eval 用)。与自造数据那版同一处补丁。
 mp = pathlib.Path(LT, "model.py"); s = mp.read_text(encoding="utf-8")
@@ -116,7 +118,7 @@ max_step_checkpoints: null
 model_name_or_path: {QWEN}
 name: qwen_code
 no_thoughts: false
-num_train_epochs: 3
+num_train_epochs: {NTE}
 only_eval: false
 output_dir: {OUT}
 per_device_eval_batch_size: 4
@@ -141,9 +143,9 @@ save_strategy: steps
 save_total_limit: 2
 seed: 42
 stage_epochs:
-- 1
-- 1
-- 1
+- {SEP}
+- {SEP}
+- {SEP}
 stage_modes:
 - common
 - hidden_state
@@ -177,8 +179,9 @@ weight_decay: 0.01
 """
 pathlib.Path(LT, "configs").mkdir(parents=True, exist_ok=True)
 pathlib.Path(LT, "configs", "qwen_code.yaml").write_text(cfg, encoding="utf-8")
-assert cfg.count("num_train_epochs: 3") == 1, "epoch 守卫失败"
-print("  wrote qwen_code.yaml (num_train_epochs=3=sum(stage_epochs) → 跑满 stage0→1→2)")
+import yaml as _y; _c = _y.safe_load(cfg)
+assert _c["num_train_epochs"] == sum(_c["stage_epochs"]), "不变式破了: num_train_epochs != sum(stage_epochs)"
+print(f"  wrote qwen_code.yaml (num_train_epochs={NTE} = sum(stage_epochs)={SEP}×3 → 跑满 stage0→1→2)")
 PY
 
 echo "[3/4] 训练 (deepspeed --num_gpus 1 run.py, stage0→1→2)"

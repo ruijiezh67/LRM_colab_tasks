@@ -10,6 +10,7 @@
 # ============================================================================
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 必须在任何 cd 之前解析
+. "$HERE/config.sh"   # 所有可调参数集中在 config.sh
 
 # ---------------- 底座 / warm-start ckpt (全部写死, 无需手动准备; 可用 env 覆盖) --------------
 # 底座 LLM: Llama-3.2-1B-Instruct。Meta 官方 repo 需申请 gating, 用 unsloth 同权重镜像免申请。
@@ -21,7 +22,7 @@ COLAR_WARM_FILE="${COLAR_WARM_FILE:-logs/colar/qsa-gsm/colar-final/checkpoints/c
 DATA_REPO="${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}"
 
 VERIFY="${VERIFY:-0}"
-if [ "$VERIFY" = "1" ]; then NROW=200; EP=3;  TAG=verify_smoke; else NROW=0; EP=25; TAG=cruxreal_gsmwarm; fi
+if [ "$VERIFY" = "1" ]; then NROW=$VERIFY_ROWS; EP=3; TAG=verify_smoke; else NROW=0; EP=$COLAR_EPOCHS; TAG=cruxreal_gsmwarm; fi
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; cd "$WORK"
 LOG="$WORK/run_logs/colar_train.log"
 . "$HERE/_common.sh"

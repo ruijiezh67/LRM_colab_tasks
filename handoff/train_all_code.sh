@@ -18,6 +18,7 @@
 # ============================================================================
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/config.sh"   # 所有可调参数集中在 config.sh
 WORK="${WORK:-$(pwd)/crux_retrain_work}"; mkdir -p "$WORK/run_logs"; export WORK
 ONLY="${ONLY:-colar,lt,lsft}"
 VERIFY="${VERIFY:-0}"

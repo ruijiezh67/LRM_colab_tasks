@@ -26,6 +26,7 @@ CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 
 | 文件 | 用途 |
 |---|---|
+| **`config.sh`** | **所有可调参数集中在这里**（模式/GPU/镜像/底座 ckpt/训练规模）。改这一个文件就够，也可以用环境变量临时覆盖 |
 | **`TRAINING.md`** | **详细讲解：底座 ckpt 从哪来、配方对照、遵守的规约、出问题怎么查** |
 | `train_all_code.sh` | 一条命令训完三个（串行，支持 `ONLY=` 挑平台、断点跳过） |
 | `train_colar_code.sh` | 只训 CoLaR → `colar_code_cruxreal.ckpt` |
@@ -34,7 +35,7 @@ CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 
 训练数据不在本目录（避免两份源漂移），在同仓库 [`../code_real_ladder/`](../code_real_ladder/)，脚本自动下载。
 
-## 常用变量
+## 常用参数（完整清单和默认值见 `config.sh`）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|

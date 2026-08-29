@@ -250,6 +250,15 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 ## 9. 运行环境 / 多卡 / 国内网络
 
+### 9.0 所有参数都在 `config.sh`
+不用记环境变量名 —— 打开 `config.sh`，里面按「运行模式 / 硬件 / 网络镜像 / 解释器路径 /
+底座 ckpt / 训练规模」六组列全了每个参数的默认值和说明。两种改法：直接改文件，
+或临时用环境变量覆盖（环境变量优先，写法都是 `${VAR:-默认值}`）。
+
+其中「训练规模」那组是**配方锁定**的（和上一版自造数据训练逐字段对齐），除非做消融否则别动。
+`LT_STAGE_EP` 改了以后 `num_train_epochs` 会自动跟着算成 3 倍 —— 这个不变式破了 LT 就只跑到
+stage0（纯 CoT、没有 latent），脚本里有断言守着。
+
 ### 9.1 解释器（别假设有 `python`）
 很多 Linux 只装了 `python3`，没有 `python` 这个别名，裸写 `python` 会 `command not found`（rc=127）。
 脚本现在统一按 `python3` → `python` 探测，并且 **pip / huggingface-cli / deepspeed 全部走 `$PY -m ...`**，
