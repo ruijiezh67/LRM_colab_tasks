@@ -5,7 +5,7 @@
 #   bash train_all_code.sh                         单卡串行(默认)
 #   PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh   三卡并行, 一个任务一张卡  ← 多卡机器推荐
 #   ONLY=colar,lt bash train_all_code.sh           只跑指定平台
-#   CN=1 ...                                       国内网络: 开 HF/pip/GitHub 镜像
+#   CN=1 ...                                       国内网络: 开 HF/pip 镜像; GitHub 直连官方
 #   VERIFY=1 ...                                   排错用(200 行小规模), 正常流程不需要
 #
 # 没有写 DDP —— 三个都是单卡任务。多卡机器上正确的用法是**一卡一任务并行**,

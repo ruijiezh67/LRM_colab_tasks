@@ -14,7 +14,7 @@ bash train_all_code.sh                          # 单卡串行, 训完三个 ckp
 # 多卡机器: 一个任务一张卡并行(推荐, 三个任务本来就互相独立)
 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 
-# 国内网络: 开 HF / pip / GitHub 镜像
+# 国内网络: 开 HF / pip 镜像; GitHub 直连官方
 CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 ```
 
@@ -43,7 +43,7 @@ CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 | `WORK=/路径` | `./crux_retrain_work` | 产物和日志落哪（日志在 `$WORK/run_logs/`） |
 | `ONLY=colar,lt,lsft` | 全部 | 总脚本只跑指定平台 |
 | `PARALLEL=1` `GPUS=0,1,2` | 关 | 一个平台一张卡并行；自动开 venv 隔离 |
-| `CN=1` | 关 | 国内镜像：HF→hf-mirror、pip→清华源、GitHub→ghfast 代理 |
+| `CN=1` | 关 | 国内镜像：HF→hf-mirror、pip→清华源；GitHub 直连官方 |
 | `GPU=3` | — | 单个脚本绑一张卡（等价 `CUDA_VISIBLE_DEVICES`）|
 | `PY=/path/python` | 自动探测 | 手动指定解释器（默认按 `python3`→`python` 找）|
 

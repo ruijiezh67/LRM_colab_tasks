@@ -233,7 +233,7 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 | 想中途接着跑 | 重跑同一个脚本。CoLaR 有 resume；LT/LSFT 从头 |
 | **`python: command not found` (rc=127)** | 你的机器只有 `python3`。已修：脚本自动探测。仍失败就 `PY=/your/bin/python bash ...` |
 | `huggingface-cli` / `deepspeed` 找不到 | 已改成 `$PY -m ...` 调用，不再依赖 PATH |
-| HF / GitHub 下载卡住或超时（国内） | `CN=1 bash ...`，见 §9.4 |
+| HF / pip 下载卡住或超时（国内） | `CN=1 bash ...`，见 §9.4；GitHub clone 当前直连官方地址 |
 | 并行跑时包版本互相覆盖 | 用 `PARALLEL=1`（自动 venv 隔离），不要手动同时跑三个脚本 |
 | 跑挂了要看现场 | `$WORK/run_logs/` 下每个平台/每步一个 log；并行模式还有 `<平台>.stdout.log` |
 | 报错想快速复现 | `VERIFY=1 bash train_X.sh` —— 200 行 + 少 epoch，几分钟跑完，专用于排错（正常流程不需要跑它） |
@@ -282,16 +282,16 @@ PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 串行跑默认不建 venv，保持原行为。
 
 ### 9.4 国内网络
-`CN=1` 一键切换（也可单独覆盖任意一项）：
+`CN=1` 一键切换 HF/pip 镜像（也可单独覆盖任意一项）：
 
 | 走哪 | 默认 | `CN=1` |
 |---|---|---|
 | HuggingFace | 官方 | `HF_ENDPOINT=https://hf-mirror.com` |
 | pip | 系统配置 | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
-| GitHub clone | 官方 | `GH_PROXY=https://ghfast.top/` 前缀 |
+| GitHub clone | 官方 | `CN=1` 不改变 GitHub 地址，仍直连官方 |
 
-要换别的镜像直接给环境变量，例如 `HF_ENDPOINT=... PIP_INDEX_URL=... GH_PROXY=... bash train_all_code.sh`。
-脚本启动时会打印实际生效的解释器 / GPU / 三个镜像，先看这几行对不对再等。
+要换 HF/pip 镜像直接给环境变量，例如 `HF_ENDPOINT=... PIP_INDEX_URL=... bash train_all_code.sh`。
+脚本启动时会打印实际生效的解释器 / GPU / HF/pip 源，先看这几行对不对再等。
 
 ### 9.5 训练规模 · 显存 · 时长
 

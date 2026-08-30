@@ -1,24 +1,21 @@
 # ============================================================================
 # _common.sh —— 被三个 train_*.sh `source`。不要直接运行。
-# 负责: ① 解释器解析(不假设有 `python`) ② 国内镜像 ③ GPU 绑定 ④ 可选 venv 隔离
+# 负责: ① 解释器解析(不假设有 `python`) ② HF/pip 镜像 ③ GPU 绑定 ④ 可选 venv 隔离
 # ============================================================================
 
 # ---------- ① GPU 绑定 ----------
 # GPU=3 bash train_lt_code.sh  → 只用 3 号卡。并行跑多个任务时给每个任务一张卡。
 if [ -n "${GPU:-}" ]; then export CUDA_VISIBLE_DEVICES="$GPU"; fi
 
-# ---------- ② 国内镜像 ----------
-# CN=1 一键开全部镜像; 也可单独覆盖 HF_ENDPOINT / PIP_INDEX_URL / GH_PROXY。
+# ---------- ② HF / pip 镜像 ----------
+# CN=1 开 HF/pip 镜像; 也可单独覆盖 HF_ENDPOINT / PIP_INDEX_URL。
 if [ "${CN:-0}" = "1" ]; then
   export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
   export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-  GH_PROXY="${GH_PROXY:-https://ghfast.top/}"
 fi
-GH_PROXY="${GH_PROXY:-}"
 
-gh_clone() {   # gh_clone <https-url> <dir>   —— 带 GitHub 代理前缀
+gh_clone() {   # gh_clone <https-url> <dir>   —— 直接访问官方 GitHub
   local url="$1" dir="$2"
-  [ -n "$GH_PROXY" ] && url="${GH_PROXY}${url}"
   git clone -q "$url" "$dir"
 }
 
@@ -55,6 +52,5 @@ print_env() {
   [ -n "${CUDA_VISIBLE_DEVICES:-}" ] && echo "  GPU   : CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
   [ -n "${HF_ENDPOINT:-}" ]          && echo "  HF 镜像: $HF_ENDPOINT"
   [ -n "${PIP_INDEX_URL:-}" ]        && echo "  pip 源 : $PIP_INDEX_URL"
-  [ -n "$GH_PROXY" ]                 && echo "  GH 代理: $GH_PROXY"
   return 0
 }

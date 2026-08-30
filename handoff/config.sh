@@ -20,10 +20,9 @@ GPU="${GPU:-}"               # 单个脚本绑一张卡, 例: 3  (等价 CUDA_VI
 VENV="${VENV:-0}"            # 1=每个平台建独立 venv 隔离依赖。PARALLEL=1 时会自动置 1
 
 # ─────────────── 3. 网络 / 镜像 ───────────────
-CN="${CN:-0}"                # 1=一键切国内镜像(HF+pip+GitHub)。下面三个可单独覆盖
+CN="${CN:-0}"                # 1=一键切国内镜像(HF+pip)。下面两个可单独覆盖
 HF_ENDPOINT="${HF_ENDPOINT:-}"      # 空=HF官方;  CN=1 时→ https://hf-mirror.com
 PIP_INDEX_URL="${PIP_INDEX_URL:-}"  # 空=系统配置; CN=1 时→ 清华源
-GH_PROXY="${GH_PROXY:-}"            # 空=GitHub官方; CN=1 时→ https://ghfast.top/
 
 # ─────────────── 4. 解释器 / 路径 ───────────────
 PY="${PY:-}"                 # 空=自动探测(python3 → python)。指定例: /opt/conda/envs/x/bin/python
