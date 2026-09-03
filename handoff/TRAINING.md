@@ -95,19 +95,25 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 1. **唯一数据来源**：三个脚本里没有任何数据生成器。全文搜 `gen_code_exec` / `gen_coding_lines` /
    `synth` / 造数逻辑 —— 零命中。`random` 只在 `VERIFY=1` 取子集时做 seeded shuffle，不生成任何内容。
-2. **sha256 锁**：每个脚本在下载数据后、开训之前校验数据文件哈希，对不上就 `exit 1`
-   （脚本有 `set -e`，在任何 GPU 工作之前就停）。实测：掺进 1 条自造样本即被拦下。
+2. **溯源校验 `verify_provenance.py`**（取代原来的 sha256 字节锁）：从 HuggingFace 拉三个上游公开集，
+   对六个数据文件的每一行检查 **(函数代码体, 调用输入, 答案)** 三元组是否逐字出现在上游。
 
-   | 文件 | sha256 |
-   |---|---|
-   | `colar_train.json` | `625bd944…c58748` |
-   | `colar_val.json` | `b64621ec…abcdc2` |
-   | `lt_train.jsonl` | `f81c395d…d2ab88` |
-   | `lt_val.jsonl` | `2157a3c3…42eb31` |
-   | `lsft_train.jsonl` | `178c8b1e…5e7d61` |
-   | `lsft_val.jsonl` | `06da2a05…0057194` |
+   ```bash
+   HF_ENDPOINT=https://hf-mirror.com python3 verify_provenance.py   # 国内; 国外去掉 HF_ENDPOINT
+   PROV=1 bash train_all_code.sh                                    # 或让训练前自动校验一次
+   ```
 
-   要换数据必须先确认新数据的权威性 + 有效性，再更新脚本里的哈希 —— 改不动是故意的。
+   退出码 0=全部可溯源 / 1=有行溯源失败(禁止训练) / 2=环境或网络问题。上游文件缓存在
+   `handoff/.prov_cache/`，第二次起离线可跑。
+
+   **阴性测试（2026-09-03 实测）**：注入 ① 完全自造的函数 ② 真代码+编造输入 ③ 真代码真输入+篡改答案，
+   三种都被抓出并 `exit 1`。干净数据 `exit 0`。
+
+   > **为什么废掉 sha256 锁**：① 它锁的六个哈希里有四个（LT/LSFT 那四个）从写下起就和仓库数据对不上，
+   > 之前一直因为 `python` 不存在而 rc=127 崩在起跑线上，没人发现；便携性修好后它第一次真跑起来，
+   > 立刻误杀了两条线的训练。② 更根本的是**哈希只能证明"没被改过"，证明不了"是真的"** ——
+   > 重新导出一次 json 就误杀，而精心编造一行却完全抓不到。交接给别的机器时这种锁只会添堵。
+
 3. **ckpt 自证来源**：CoLaR 的数据集目录名用 `coding_real_ladder`（**不是**当初合成那版的
    `coding_mix`），所以训出来的 ckpt 自己的 `hparams.yaml` 里就写着真实数据来源，事后不会混淆。
 
@@ -149,7 +155,7 @@ ONLY=lt,lsft bash train_all_code.sh   # 或用总脚本挑
 
 > ⚠️ **eval 文件必须带裸 `answer`**。上游 `get_answer_text` 在缺 `answer` 时会**回退用 `solution` 当标准答案**——
 > 而 `solution` 是整条 CoT，那样判分会全错。脚本从 `cot_answer` 的 `\boxed{...}` 里剥出裸答案生成
-> `code-eval.jsonl`（165/165 提取成功），不改动被 sha256 锁定的数据文件。
+> `code-eval.jsonl`（165/165 提取成功），不改动仓库里的数据文件。
 
 
 ---

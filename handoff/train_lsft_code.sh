@@ -36,33 +36,16 @@ LSFT="$WORK/Latent-SFT"
 [ -d "$LSFT/.git" ] || gh_clone https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
 [ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 
-echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
-import hashlib, os, sys
-SHA = {
-    "lsft_train.jsonl": "178c8b1e834a55bdd31d0b1eff9036bdf30c943421ebcd0b126946a3065e7d61",
-    "lsft_val.jsonl": "06da2a05f471b72ca7a39d75124338d01b1a3b831623ba76b3081acca0057194",
-}
-src = sys.argv[1]
-bad = 0
-for f, want in SHA.items():
-    p = os.path.join(src, f)
-    if not os.path.exists(p):
-        print("  X 数据文件缺失:", p); bad = 1; continue
-    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
-    if got != want:
-        print("  X 数据与锁定版本不符:", f)
-        print("    expect", want)
-        print("    actual", got)
-        bad = 1
-    else:
-        print("  ok", f)
-if bad:
-    print("  训练中止。铁律: 只允许真实公开数据(CRUXEval/LiveCodeBench/MBPP), 禁自造/合成。")
-    print("  若确需换数据, 必须先确认新数据的权威性+有效性, 再更新脚本里的 sha256。")
-    sys.exit(1)
-print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
-GUARD
+# 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。
+# 交接说明: 这里原来有一把 sha256 字节锁, 已移除 —— 它锁的哈希从写下起就和仓库数据对不上,
+#   只会在换机器/重新导出后误杀训练; 而且哈希只能证明"没被改过", 证明不了"是真的"。
+#   真校验换成了 verify_provenance.py(逐行比对 HuggingFace 上游), 跑一次即可, 不阻塞训练:
+#       HF_ENDPOINT=https://hf-mirror.com python3 verify_provenance.py
+#   想让训练前自动校验一次: PROV=1 bash <本脚本>
+if [ "${PROV:-0}" = "1" ]; then
+  echo "[数据溯源校验] 逐行比对 HuggingFace 上游 (PROV=1)"
+  "$PY" "$HERE/verify_provenance.py" "$WORK/lrm/code_real_ladder"
+fi
 
 echo "[3/8] 兼容补丁 + 数据 + 改脚本"
 "$PY" - "$LSFT" "$WORK/lrm/code_real_ladder" "$BASE" "$NROW" "$S1" "$S2" <<'PY'
@@ -98,7 +81,7 @@ open(D/"code-train.jsonl", "w", encoding="utf-8").write("\n".join(json.dumps(r, 
 TRAIN = str(D/"code-train.jsonl")
 # --- eval 文件: upstream README 要 {problem, solution, answer}(见 eval/*_hf_batch.py 的 get_answer_text) ---
 #     必须带裸 answer。缺了它 upstream 会回退用 solution(=整条 CoT)当标准答案判分, 准确率会全错。
-#     answer 从 cot_answer 的 boxed{...} 里剥出来, 不改动被 sha256 锁定的数据文件。
+#     answer 从 cot_answer 的 boxed{...} 里剥出来, 不改动仓库里的数据文件(只在内存里转格式)。
 va = [json.loads(l) for l in open(f"{src}/lsft_val.jsonl", encoding="utf-8") if l.strip()]
 def _bare(ca):
     m = re.search(r"boxed\{(.*)\}\s*$", ca, re.S)

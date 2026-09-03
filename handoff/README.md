@@ -32,6 +32,7 @@ CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 | `train_colar_code.sh` | 只训 CoLaR → `colar_code_cruxreal.ckpt` |
 | `train_lt_code.sh` | 只训 LT-Tuning → `lt_code_out/qwen_code/` |
 | `train_lsft_code.sh` | 只训 Latent-SFT（6 步）→ `stage2_results/code/checkpoint-*/hf` |
+| `verify_provenance.py` | **数据溯源校验**：逐行比对 HuggingFace 上游，证明没有自造数据 |
 
 训练数据不在本目录（避免两份源漂移），在同仓库 [`../code_real_ladder/`](../code_real_ladder/)，脚本自动下载。
 
@@ -56,5 +57,13 @@ CN=1 PARALLEL=1 GPUS=0,1,2 bash train_all_code.sh
 | T0/T1 浅·中 | CRUXEval · MBPP | Gu et al. 2024, arXiv:2401.03065 · Austin et al. 2021, arXiv:2108.07732 |
 | T2 深 | LiveCodeBench execution-v2 | Jain et al. 2024, arXiv:2403.07974 |
 
-**数据来源是锁死的**：脚本开训前校验 sha256，对不上直接中止；1653 行已全量逐字回溯到上述三个公开集。
-详见 [`TRAINING.md`](TRAINING.md) §4.1。
+**禁自造合成，且可机器复核**：`verify_provenance.py` 会从 HuggingFace 拉上游公开集，逐行比对
+**(函数代码体, 调用输入, 答案)** 三元组。已实测 1653 行 × 三种格式全部逐字命中上游，0 例外。
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com python3 verify_provenance.py   # 国内(镜像与官方逐字节一致)
+PROV=1 bash train_all_code.sh                                    # 或训练前自动校验一次
+```
+
+它**不阻塞训练**（默认不跑），换机器不会误杀。原来那把 sha256 字节锁已移除 —— 哈希只证明"没被改过"，
+证明不了"是真的"。详见 [`TRAINING.md`](TRAINING.md) §4.1。

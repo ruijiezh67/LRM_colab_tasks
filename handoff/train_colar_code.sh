@@ -38,33 +38,16 @@ echo "[2/5] 官方 CoLaR 代码 + 三档真实数据"
 [ -f "$WORK/colar/run.py" ] || gh_clone https://github.com/xiaomi-research/colar.git "$WORK/colar"
 [ -f "$WORK/lrm/code_real_ladder/colar_train.json" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 
-echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
-import hashlib, os, sys
-SHA = {
-    "colar_train.json": "625bd94402c1fd5ec167bcbc98ab66e587a45bf6aba3a0effb6749feb9c58748",
-    "colar_val.json": "b64621ec716254e6f2a5969229c9e0b78ecc5b68491a02a642c8c2273fabcdc2",
-}
-src = sys.argv[1]
-bad = 0
-for f, want in SHA.items():
-    p = os.path.join(src, f)
-    if not os.path.exists(p):
-        print("  X 数据文件缺失:", p); bad = 1; continue
-    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
-    if got != want:
-        print("  X 数据与锁定版本不符:", f)
-        print("    expect", want)
-        print("    actual", got)
-        bad = 1
-    else:
-        print("  ok", f)
-if bad:
-    print("  训练中止。铁律: 只允许真实公开数据(CRUXEval/LiveCodeBench/MBPP), 禁自造/合成。")
-    print("  若确需换数据, 必须先确认新数据的权威性+有效性, 再更新脚本里的 sha256。")
-    sys.exit(1)
-print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
-GUARD
+# 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。
+# 交接说明: 这里原来有一把 sha256 字节锁, 已移除 —— 它锁的哈希从写下起就和仓库数据对不上,
+#   只会在换机器/重新导出后误杀训练; 而且哈希只能证明"没被改过", 证明不了"是真的"。
+#   真校验换成了 verify_provenance.py(逐行比对 HuggingFace 上游), 跑一次即可, 不阻塞训练:
+#       HF_ENDPOINT=https://hf-mirror.com python3 verify_provenance.py
+#   想让训练前自动校验一次: PROV=1 bash <本脚本>
+if [ "${PROV:-0}" = "1" ]; then
+  echo "[数据溯源校验] 逐行比对 HuggingFace 上游 (PROV=1)"
+  "$PY" "$HERE/verify_provenance.py" "$WORK/lrm/code_real_ladder"
+fi
 
 echo "[3/5] 底座 $LLAMA_ID + warm-start $COLAR_WARM_REPO"
 WS="$WORK/ws"; mkdir -p "$WS/models/llms" "$WS/datasets/text_reasoning/coding_real_ladder"

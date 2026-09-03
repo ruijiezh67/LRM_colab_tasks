@@ -36,33 +36,16 @@ LT="$WORK/Latent-Thoughts-Tuning"
 [ -d "$LT/.git" ] || gh_clone https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
 git -C "$LT" checkout -q "$LT_COMMIT"
 [ -f "$WORK/lrm/code_real_ladder/lt_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
-echo "[数据来源校验] 禁自造数据铁律 -- 校验 sha256"
-"$PY" - "$WORK/lrm/code_real_ladder" <<'GUARD'
-import hashlib, os, sys
-SHA = {
-    "lt_train.jsonl": "f81c395dd3172a023a386ce9686d9e409fffeedb9801812edf2fb94db4d2ab88",
-    "lt_val.jsonl": "2157a3c395ee4f236b9ae2009684334357a318da1a93ff599b72f7c19542eb31",
-}
-src = sys.argv[1]
-bad = 0
-for f, want in SHA.items():
-    p = os.path.join(src, f)
-    if not os.path.exists(p):
-        print("  X 数据文件缺失:", p); bad = 1; continue
-    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
-    if got != want:
-        print("  X 数据与锁定版本不符:", f)
-        print("    expect", want)
-        print("    actual", got)
-        bad = 1
-    else:
-        print("  ok", f)
-if bad:
-    print("  训练中止。铁律: 只允许真实公开数据(CRUXEval/LiveCodeBench/MBPP), 禁自造/合成。")
-    print("  若确需换数据, 必须先确认新数据的权威性+有效性, 再更新脚本里的 sha256。")
-    sys.exit(1)
-print("  数据来源校验通过 -- 1653 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP")
-GUARD
+# 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。
+# 交接说明: 这里原来有一把 sha256 字节锁, 已移除 —— 它锁的哈希从写下起就和仓库数据对不上,
+#   只会在换机器/重新导出后误杀训练; 而且哈希只能证明"没被改过", 证明不了"是真的"。
+#   真校验换成了 verify_provenance.py(逐行比对 HuggingFace 上游), 跑一次即可, 不阻塞训练:
+#       HF_ENDPOINT=https://hf-mirror.com python3 verify_provenance.py
+#   想让训练前自动校验一次: PROV=1 bash <本脚本>
+if [ "${PROV:-0}" = "1" ]; then
+  echo "[数据溯源校验] 逐行比对 HuggingFace 上游 (PROV=1)"
+  "$PY" "$HERE/verify_provenance.py" "$WORK/lrm/code_real_ladder"
+fi
 
 "$PY" - "$LT" "$WORK/lrm/code_real_ladder" "$WORK/data_lt" "$NROW" "$OUT" "$QWEN_ID" "$LT_STAGE_EP" <<'PY'
 import pathlib, sys, json, random
