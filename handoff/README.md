@@ -170,8 +170,23 @@ bash test_no_github_mirror.sh                                          # → PAS
 HF_ENDPOINT=http://127.0.0.1:9 python3 verify_provenance.py ../code_real_ladder
 #   → 六个文件全部来自 upstream_data/，4959 行全部溯源成功（HF 端点故意指向不可达地址）
 VERIFY=1 ONLY=colar PARALLEL=0 bash train_all_code.sh                  # → 自检正确拦下磁盘不足并给修复命令
-PREFLIGHT=0 VERIFY=1 ONLY=colar WORK=/大盘 bash train_all_code.sh       # → 准备阶段零 GitHub 访问
 ```
+
+**三个脚本的 vendored 取码路径均已逐个实跑验证**（用假 python 拦掉 pip，让脚本真实执行到 clone 步）：
+
+| 平台 | vendored 取码 | 之后停在 | 原因 |
+|---|---|---|---|
+| CoLaR | ✅ 用本地副本，未联网 | `[3/5]` 下底座 | 本机缺 `huggingface_hub`（测试时拦了 pip） |
+| LT-Tuning | ✅ 用本地副本 + commit 校验通过 | **全程走完 ✅** | — |
+| Latent-SFT | ✅ 用本地副本，未联网 | `[6/8]` soft labels | 本机 `import torch` 失败（Windows 无 CUDA） |
+
+准备阶段全程 **零 GitHub 访问**。
+
+> 📌 **2026-09-05 修复的一个真 bug**：`train_lt_code.sh` 在取码后有一句无条件的
+> `git -C "$LT" checkout "$LT_COMMIT"`。vendored 副本没有 `.git`，这句必然报
+> `pathspec 'c18aac6' did not match any file(s)`。
+> 修法不是跳过 checkout（那会悄悄丢掉"版本锁定"这个保证），而是给每个 vendored 副本写入
+> `.vendored_commit`，无 `.git` 时改为校验它与 `LT_COMMIT` 是否一致，不一致就报错退出。
 
 ### ⚠️ 未验证的部分
 

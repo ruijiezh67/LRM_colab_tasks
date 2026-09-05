@@ -35,7 +35,22 @@ pipi "torch==2.7.1" "torchvision==0.22.1" "transformers==4.55.4" "datasets==4.2.
 echo "[2/4] clone 驱动@$LT_COMMIT + model.py sdpa patch + 三档数据 + config"
 LT="$WORK/Latent-Thoughts-Tuning"
 [ -f "$LT/model.py" ] || gh_clone https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
-git -C "$LT" checkout -q "$LT_COMMIT"
+# 锁定驱动代码的 commit。两条路径:
+#   有 .git(联网 clone 来的)   -> 直接 checkout
+#   无 .git(仓库内 vendored)   -> 校验 .vendored_commit 是否就是要的那个
+# 后者同样保住"版本锁定"这个保证, 只是换了实现方式。
+if [ -d "$LT/.git" ]; then
+  git -C "$LT" checkout -q "$LT_COMMIT"
+elif [ -f "$LT/.vendored_commit" ]; then
+  _vc="$(tr -d "[:space:]" < "$LT/.vendored_commit")"
+  case "$_vc" in
+    "$LT_COMMIT"*) echo "  vendored 副本已在 $LT_COMMIT (${_vc:0:12})" ;;
+    *) echo "X vendored 副本是 ${_vc:0:12}, 但 config.sh 要求 $LT_COMMIT。"
+       echo "  两者必须一致, 否则配方不可比。修 upstream/ 的快照或改 LT_COMMIT。"; exit 1 ;;
+  esac
+else
+  echo "X $LT 既无 .git 也无 .vendored_commit, 无法确认版本"; exit 1
+fi
 [ -f "$WORK/lrm/code_real_ladder/lt_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 # 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。
 # 交接说明: 这里原来有一把 sha256 字节锁, 已移除 —— 它锁的哈希从写下起就和仓库数据对不上,
