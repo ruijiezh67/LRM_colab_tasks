@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # 数据溯源校验 —— 取代原来的 sha256 字节锁。
 #
@@ -17,6 +18,9 @@
 #       但四个 split 都装进索引: 出处只要是 MBPP 公开集就算合规, 不必卡死在某个 split。
 #
 # 计数说明: 六个文件 = 同一份 1653 行(1488 train + 165 val)的三种平台格式, 所以总数报 4959。
+#
+# 离线: 六个上游文件已 vendored 在 ../upstream_data/, 默认直接用, 不联网。
+#       删掉那个目录才会回退到 HuggingFace 下载。
 #
 # 依赖: pyarrow (训练 venv 里 datasets 已带; 单独跑则 pip install pyarrow)
 # 退出码: 0=全部可溯源, 1=有行溯源失败(此时禁止训练), 2=环境/网络问题
@@ -38,11 +42,21 @@ FILES = [
     ("google-research-datasets/mbpp",   "full/prompt-00000-of-00001.parquet",     "mbpp_prompt.parquet"),
 ]
 
+# 仓库内 vendored 的上游数据集(见 upstream_data/PROVENANCE.md)。有它就不必联网。
+VENDORED = os.path.join(HERE, "..", "upstream_data")
+
 def fetch(repo, path, local):
+    # 1) 仓库自带的 vendored 副本 —— 交接方无需能访问 HuggingFace
+    v = os.path.join(VENDORED, local)
+    if os.path.exists(v) and os.path.getsize(v) > 0:
+        print(f"  本地 {local:<22} {os.path.getsize(v):>9,} B   (upstream_data/, 未联网)")
+        return v
+    # 2) 之前下载过的缓存
     os.makedirs(CACHE, exist_ok=True)
     dst = os.path.join(CACHE, local)
     if os.path.exists(dst) and os.path.getsize(dst) > 0:
         return dst
+    # 3) 兜底: 联网下载
     url = f"{EP}/datasets/{repo}/resolve/main/{path}"
     try:
         with urllib.request.urlopen(url, timeout=120) as r, open(dst, "wb") as f:
@@ -137,4 +151,4 @@ if allbad:
     sys.exit(1)
 print(f"通过: {total} 行全部可逐字回溯到 CRUXEval / LiveCodeBench / MBPP。")
 print("说明: 题面(代码+输入)与答案 100% 是公开集原文; steps/CoT 是从真实函数体机械抽取的,")
-print("      这三个集本身不提供 CoT —— 见 TRAINING.md 的知情说明。")
+print("      这三个集本身不提供 CoT —— 见 README.md 第 4 节。")

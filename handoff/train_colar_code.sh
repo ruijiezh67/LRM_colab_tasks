@@ -1,10 +1,11 @@
 #!/bin/bash
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # CoLaR-code 训练 — 一键跑。   bash train_colar_code.sh
 #   VERIFY=1 bash train_colar_code.sh  → 小规模验证代码(200行, ~10min, 不出正式 ckpt)
 #   (不带 VERIFY)                       → 全量真训练(25ep) → colar_code_cruxreal.ckpt
 #
-# 配方 = 当初自造数据那版 colar_coding 的 hparams.yaml 逐字段对齐(见 TRAINING.md §配方对照),
+# 配方 = 当初自造数据那版 colar_coding 的 hparams.yaml 逐字段对齐(见 README.md 第 6 节 配方对照),
 #        本次唯一变化 = 数据换成真实三档(CRUXEval+LiveCodeBench+MBPP)。
 # 需要: 单卡 GPU(A100/L4/T4-16G 皆可) + 联网。
 # ============================================================================

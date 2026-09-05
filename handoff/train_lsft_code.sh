@@ -1,4 +1,5 @@
 #!/bin/bash
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # Latent-SFT code 训练 — 一键跑(6 步管线)。 bash train_lsft_code.sh
 #   VERIFY=1 bash train_lsft_code.sh → 小规模验证代码(200行, S1=2/S2=3 ep, loss检查)
@@ -33,7 +34,7 @@ export WANDB_MODE=offline WANDB_API_KEY=""
 
 echo "[2/8] clone Latent-SFT + 三档数据"
 LSFT="$WORK/Latent-SFT"
-[ -d "$LSFT/.git" ] || gh_clone https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
+[ -f "$LSFT/generate_latent_soft_label_lora_batch.py" ] || gh_clone https://github.com/DJC-GO-SOLO/Latent-SFT.git "$LSFT"
 [ -f "$WORK/lrm/code_real_ladder/lsft_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 
 # 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。

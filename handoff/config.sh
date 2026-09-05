@@ -1,3 +1,4 @@
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # config.sh —— 所有可调参数集中在这里。改这一个文件就够，不用记环境变量名。
 #
@@ -14,7 +15,7 @@ VERIFY="${VERIFY:-0}"        # 0=全量真训练(正常用这个)  1=排错模�
 PARALLEL="${PARALLEL:-0}"    # 0=串行(单卡)              1=一个平台一张卡并行(多卡机器用这个)
 ONLY="${ONLY:-colar,lt,lsft}" # 只跑哪些平台, 逗号分隔
 PROV="${PROV:-0}"            # 1=训练前跑一次数据溯源校验(verify_provenance.py, 需联网)
-                             #   默认关: 不给交接方添堵。数据是否干净已实测记录在 TRAINING.md 4.1
+                             #   默认关: 不给交接方添堵。数据是否干净已实测记录在 README.md 第 4 节
                              #   国内记得同时 CN=1 (会把 HF_ENDPOINT 指到 hf-mirror.com)
 
 # ─────────────── 2. 硬件 ───────────────

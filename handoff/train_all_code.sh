@@ -1,4 +1,11 @@
 #!/bin/bash
+# ── 本包在 GitHub 上的位置 ──────────────────────────────────────────
+#   交接包:   https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
+#   上游代码: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/upstream
+#   上游数据: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/upstream_data
+#   训练数据: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/code_real_ladder
+#   完整说明: handoff/README.md
+# ────────────────────────────────────────────────────────────────────
 # ============================================================================
 # 训完三个 code LRM ckpt。
 #
@@ -34,11 +41,74 @@ echo "  计划: $ONLY     产物: $WORK     日志: $WORK/run_logs/"
 print_env
 echo "════════════════════════════════════════════════════════════"
 
+# ─────────────────────────────────────────────────────────────────────
+# 起飞前自检 —— 把所有"会让三个平台同时挂掉"的前置条件一次查完。
+# 每一项失败都直接给出修复命令; 交接方不需要读脚本源码来排查。
+# 跳过: PREFLIGHT=0
+# ─────────────────────────────────────────────────────────────────────
+if [ "${PREFLIGHT:-1}" = "1" ]; then
+  pf_fail=0
+  pf () { if [ "$1" = ok ]; then printf "  [ok]   %s
+" "$2"; else printf "  [FAIL] %s
+         -> %s
+" "$2" "$3"; pf_fail=1; fi; }
+  echo "起飞前自检:"
+
+  # 1. 解释器
+  [ -n "${PY:-}" ] && pf ok "python: $PY" || pf x "找不到 python/python3" "用 PY=/你的/python bash train_all_code.sh 指定"
+
+  # 2. venv (PARALLEL=1 会自动 VENV=1; 缺 python3-venv 会三个平台同时挂)
+  if [ "${VENV:-0}" = "1" ]; then
+    if "$PY" -m venv --help >/dev/null 2>&1; then pf ok "venv 可用"
+    else pf x "python venv 模块缺失(并行模式必需)" "apt install python3-venv  或  PARALLEL=0 串行跑"; fi
+  fi
+
+  # 3. GPU
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    ngpu=$(nvidia-smi -L 2>/dev/null | wc -l)
+    nwant=$(echo "$ONLY" | tr ',' '
+' | grep -c .)
+    if [ "$PARALLEL" = "1" ] && [ "$ngpu" -lt "$nwant" ]; then
+      pf x "并行需要 $nwant 张卡, 只看到 $ngpu 张" "GPUS=0,1,2 指定卡号, 或 PARALLEL=0 串行跑"
+    else pf ok "GPU: 可见 $ngpu 张"; fi
+  else pf x "没有 nvidia-smi" "确认在有 GPU 的机器上, 且驱动已装"; fi
+
+  # 4. vendored 上游代码仓 (缺了就会回退去 clone GitHub)
+  miss=""
+  for r in colar Latent-Thoughts-Tuning Latent-SFT; do [ -d "$REPO_ROOT/upstream/$r" ] || miss="$miss $r"; done
+  [ -z "$miss" ] && pf ok "上游代码仓已 vendored (无需 GitHub)"                  || pf x "upstream/ 缺:$miss" "git pull 更新本仓库; 或联网让脚本自行 clone"
+
+  # 5. 训练数据
+  dm=""
+  for f in colar_train.json colar_val.json lt_train.jsonl lt_val.jsonl lsft_train.jsonl lsft_val.jsonl; do
+    [ -f "$REPO_ROOT/code_real_ladder/$f" ] || dm="$dm $f"; done
+  [ -z "$dm" ] && pf ok "训练数据 6 个文件齐全" || pf x "code_real_ladder/ 缺:$dm" "git pull 更新本仓库"
+
+  # 6. 磁盘 (三个 venv + 模型 + ckpt)
+  avail=$(df -Pm "$WORK" 2>/dev/null | awk 'NR==2{print $4}')
+  if [ -n "$avail" ] && [ "$avail" -lt 60000 ]; then
+    pf x "$WORK 所在盘只剩 $((avail/1024)) GB (建议 >60GB)" "WORK=/大盘/路径 bash train_all_code.sh"
+  else pf ok "磁盘: 剩余 $(( ${avail:-0} / 1024 )) GB"; fi
+
+  if [ "$pf_fail" = "1" ]; then
+    echo ""
+    echo "自检未通过, 已停止 —— 先按上面的 -> 修复, 再重跑。"
+    echo "(确认无误想强行继续: PREFLIGHT=0 bash train_all_code.sh)"
+    exit 1
+  fi
+  echo ""
+fi
+
 # 数据仓预先克隆一次 —— 并行时三个进程同时 clone 同一目录会打架
 [ -f "$WORK/lrm/code_real_ladder/manifest.json" ] || {
   echo "预拉数据仓 ..."
   rm -rf "$WORK/lrm"
-  gh_clone "${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}" "$WORK/lrm"
+  if ! gh_clone "${DATA_REPO:-https://github.com/ruijiezh67/LRM_colab_tasks.git}" "$WORK/lrm"; then
+    echo "X 数据仓准备失败 -> $WORK/lrm。三个平台都会因此失败, 先解决这一步。"; exit 1
+  fi
+  if [ ! -f "$WORK/lrm/code_real_ladder/manifest.json" ]; then
+    echo "X 数据仓就位但缺 code_real_ladder/manifest.json, 检查 $WORK/lrm"; exit 1
+  fi
 }
 
 want () { case ",$ONLY," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }

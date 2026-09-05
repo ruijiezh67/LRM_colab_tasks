@@ -1,11 +1,12 @@
 #!/bin/bash
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # LT-Tuning-code 训练 — 一键跑。   bash train_lt_code.sh
 #   VERIFY=1 bash train_lt_code.sh → 小规模验证代码(200行, 三阶段各1ep, 不出正式 ckpt)
 #   (不带)                          → 全量(1488行, stage0→1→2 三阶段课程) → lt_code_out/
 #
 # 配方 = 当初自造数据那版 cell_02 的 qwen_code.yaml(= Kai 验证过的 qwen_colab.yaml)逐字段对齐,
-#        本次变化 = ① 数据换真实三档 ② thinking_operator_regex 换成代码标识符(见 TRAINING.md)。
+#        本次变化 = ① 数据换真实三档 ② thinking_operator_regex 换成代码标识符(见 README.md 第 6 节)。
 # 驱动 = 官方 NeosKnight233/Latent-Thoughts-Tuning @ c18aac6 (权重未发布, 只能自训)。
 # 需要: 单卡 GPU(A100/L4) + 联网。
 # ============================================================================
@@ -33,7 +34,7 @@ pipi "torch==2.7.1" "torchvision==0.22.1" "transformers==4.55.4" "datasets==4.2.
 
 echo "[2/4] clone 驱动@$LT_COMMIT + model.py sdpa patch + 三档数据 + config"
 LT="$WORK/Latent-Thoughts-Tuning"
-[ -d "$LT/.git" ] || gh_clone https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
+[ -f "$LT/model.py" ] || gh_clone https://github.com/NeosKnight233/Latent-Thoughts-Tuning.git "$LT"
 git -C "$LT" checkout -q "$LT_COMMIT"
 [ -f "$WORK/lrm/code_real_ladder/lt_train.jsonl" ] || gh_clone "$DATA_REPO" "$WORK/lrm"
 # 数据来源: CRUXEval / LiveCodeBench / MBPP 公开集。禁自造/合成数据。

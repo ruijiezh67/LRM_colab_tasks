@@ -1,3 +1,4 @@
+# 交接包与完整说明: https://github.com/ruijiezh67/LRM_colab_tasks/tree/main/handoff
 # ============================================================================
 # _common.sh —— 被三个 train_*.sh `source`。不要直接运行。
 # 负责: ① 解释器解析(不假设有 `python`) ② HF/pip 镜像 ③ GPU 绑定 ④ 可选 venv 隔离
@@ -14,8 +15,31 @@ if [ "${CN:-0}" = "1" ]; then
   export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 fi
 
-gh_clone() {   # gh_clone <https-url> <dir>   —— 直接访问官方 GitHub
-  local url="$1" dir="$2"
+# 仓库根 = handoff/ 的上一级。vendored 的上游代码与数据都在那里。
+REPO_ROOT="${REPO_ROOT:-$(cd "$HERE/.." && pwd)}"
+
+gh_clone() {   # gh_clone <https-url> <dir>
+  # 优先用仓库内 vendored 的副本, 联网只是兜底 —— 交接方无需能访问 GitHub。
+  local url="$1" dir="$2" name
+  name="$(basename "${url%.git}")"
+
+  # 数据仓就是本仓库自己, 直接指过去, 不必复制
+  if [ "$name" = "LRM_colab_tasks" ]; then
+    rm -rf "$dir"
+    ln -sfn "$REPO_ROOT" "$dir" 2>/dev/null
+    # symlink 在 Windows / 某些文件系统上会静默失效, 校验后回退到复制
+    [ -f "$dir/code_real_ladder/manifest.json" ] || { rm -rf "$dir"; cp -a "$REPO_ROOT" "$dir"; }
+    return 0
+  fi
+
+  # 三个上游代码仓已 vendored 在 upstream/ (见 upstream/PROVENANCE.md)
+  if [ -d "$REPO_ROOT/upstream/$name" ]; then
+    echo "  用本地 vendored 副本: upstream/$name (未联网)"
+    rm -rf "$dir"; cp -a "$REPO_ROOT/upstream/$name" "$dir"
+    return 0
+  fi
+
+  echo "  ⚠ upstream/$name 不存在, 回退到联网 clone: $url"
   git clone -q "$url" "$dir"
 }
 
